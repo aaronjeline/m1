@@ -1,0 +1,14 @@
+name = "m1"
+version = "0.1.0"
+defaultTargets = ["M1", "Examples", "m1"]
+
+[[lean_lib]]
+name = "M1"
+
+# Verified machine code produced by clang.
+[[lean_lib]]
+name = "Examples"
+
+[[lean_exe]]
+name = "m1"
+root = "Main"
