@@ -47,9 +47,10 @@ theorem toNat_sub_add (a S d : BitVec 64) :
     (a - (S + d)).toNat = ((a - S).toNat + (2 ^ 64 - d.toNat)) % 2 ^ 64 := by
   rw [show a - (S + d) = (a - S) - d by grind, BitVec.toNat_sub]; omega
 
-/-- The bytes `Inv` tracks are `[S + 0x300, S + 0x358)` and `[S + 0x418, S + 0x450)`. -/
+/-- The bytes `Inv` tracks: the saved registers and the caller's frame outside
+the result, `[S + 0x300, S + 0x358)` and `[S + 0x420, S + 0x450)`. -/
 def Tracked (S a : BitVec 64) : Prop :=
-  0x300 ≤ (a - S).toNat ∧ (a - S).toNat < 0x450 ∧ ((a - S).toNat < 0x358 ∨ 0x418 ≤ (a - S).toNat)
+  0x300 ≤ (a - S).toNat ∧ (a - S).toNat < 0x450 ∧ ((a - S).toNat < 0x358 ∨ 0x420 ≤ (a - S).toNat)
 
 /-- `Inv` survives a call whose contract keeps every tracked byte. -/
 theorem Inv.of_call {s0 s s' : State} {out : BitVec 64} {n : Nat} (h : Inv s0 s)
@@ -179,6 +180,8 @@ theorem write8_keep {m : Memory} {w a : BitVec 64} (v : BitVec 8) (h : 1 ≤ (a 
 
 theorem sub_add_sub' (a b c : BitVec 64) : a - b + (b - c) = a - c := by grind
 
+theorem add_sub_add_l (x c d : BitVec 64) : x + c - (x + d) = c - d := by grind
+
 /-- A stack byte is at least `n` bytes past the start of an off-stack range of `n` bytes. -/
 theorem far_of_off {a w : BitVec 64} {n : Nat} (ha : OnStack lo top a)
     (hw : ∀ i < n, ¬ OnStack lo top (w + BitVec.ofNat 64 i)) : n ≤ (a - w).toNat := by
@@ -188,11 +191,11 @@ theorem far_of_off {a w : BitVec 64} {n : Nat} (ha : OnStack lo top a)
     rw [BitVec.ofNat_toNat, BitVec.setWidth_eq, BitVec.add_comm, BitVec.sub_add_cancel]
   rwa [this]
 
-/-- Tracked bytes are on the stack. -/
-theorem onStack_of_tracked {s0 : State} (hlo : 0x350 ≤ (s0.sp - lo).toNat)
+/-- Bytes of `[S, S + 0x450)` (this frame and the caller's) are on the stack. -/
+theorem onStack_of_frame {s0 : State} (hlo : 0x350 ≤ (s0.sp - lo).toNat)
     (htop : (s0.sp - lo).toNat + 0x100 ≤ (top - lo).toNat) {a : BitVec 64}
-    (ha : Tracked (s0.sp + 0xfffffffffffffcb0#64) a) : OnStack lo top a := by
-  unfold OnStack; unfold Tracked at ha
+    (ha : (a - (s0.sp + 0xfffffffffffffcb0#64)).toNat < 0x450) : OnStack lo top a := by
+  unfold OnStack
   have hS : (s0.sp + 0xfffffffffffffcb0#64 - lo).toNat = (s0.sp - lo).toNat - 0x350 := by
     rw [BitVec.sub_add_comm.symm, BitVec.toNat_add]
     simp only [BitVec.toNat_ofNat]
@@ -201,6 +204,71 @@ theorem onStack_of_tracked {s0 : State} (hlo : 0x350 ≤ (s0.sp - lo).toNat)
   have htl := (top - lo).isLt
   rw [← sub_add_sub' a (s0.sp + 0xfffffffffffffcb0#64) lo, BitVec.toNat_add, hS]
   omega
+
+theorem onStack_of_tracked {s0 : State} (hlo : 0x350 ≤ (s0.sp - lo).toNat)
+    (htop : (s0.sp - lo).toNat + 0x100 ≤ (top - lo).toNat) {a : BitVec 64}
+    (ha : Tracked (s0.sp + 0xfffffffffffffcb0#64) a) : OnStack lo top a :=
+  onStack_of_frame lo top hlo htop ha.2.1
+
+/-- A byte `d` into `[F, F+K)` is at least `N` past `e` when `[e, e+N)` and `[F, F+K)` are disjoint. -/
+theorem far_of_disjoint {e F : BitVec 64} {N K : Nat} (hd : Memory.Disjoint e N F K) (d : Nat)
+    (hdK : d < K) (hK : K < 2 ^ 63) : N ≤ (F + BitVec.ofNat 64 d - e).toNat := by
+  obtain ⟨h1, h2⟩ := hd
+  have hsum : (e - F).toNat + (F - e).toNat = 2 ^ 64 := by
+    have h0 : (e - F + (F - e)).toNat = 0 := by
+      rw [show e - F + (F - e) = 0#64 by grind]; rfl
+    rw [BitVec.toNat_add] at h0
+    have := (e - F).isLt; have := (F - e).isLt
+    omega
+  rw [show F + BitVec.ofNat 64 d - e = (F - e) + BitVec.ofNat 64 d by grind, BitVec.toNat_add]
+  simp only [BitVec.toNat_ofNat]
+  omega
+
+/-- A byte inside an on-stack object is on the stack. -/
+theorem onStack_of_in {a e : BitVec 64} {n : Nat} (hin : (a - e).toNat < n)
+    (h : ∀ i < n, OnStack lo top (e + BitVec.ofNat 64 i)) : OnStack lo top a := by
+  have := h _ hin
+  rwa [BitVec.ofNat_toNat, BitVec.setWidth_eq, BitVec.add_comm, BitVec.sub_add_cancel] at this
+
+/-- A byte of this frame (`F = S`) is at least `0x78` past the expression `e`. -/
+theorem far_e {e F : BitVec 64} (hd : Memory.Disjoint e 0x78 F 0x350) (x : BitVec 64)
+    (hx : (x - F).toNat < 0x350) : 0x78 ≤ (x - e).toNat := by
+  have := far_of_disjoint hd (x - F).toNat hx (by decide)
+  rwa [BitVec.ofNat_toNat, BitVec.setWidth_eq, BitVec.add_comm, BitVec.sub_add_cancel] at this
+
+/-- A range at `s0.sp + c` within `[S, S + 0x450)` is on the stack. -/
+theorem onStack_range {s0 : State} (hlo : 0x350 ≤ (s0.sp - lo).toNat)
+    (htop : (s0.sp - lo).toNat + 0x100 ≤ (top - lo).toNat) (c : BitVec 64) (n : Nat)
+    (hc : (c - 0xfffffffffffffcb0#64).toNat + n ≤ 0x450) :
+    ∀ i < n, OnStack lo top (s0.sp + c + BitVec.ofNat 64 i) := by
+  intro i hi
+  apply onStack_of_frame lo top hlo htop
+  rw [toNat_add_sub_add, BitVec.toNat_sub] at *
+  have := c.isLt
+  simp only [BitVec.toNat_ofNat] at *
+  omega
+
+/-- A range at `s0.sp + c` within `[S, S + 0x350)` (this frame) is past the expression. -/
+theorem far_e_range {s0 : State} {e : BitVec 64}
+    (hd : Memory.Disjoint e 0x78 (s0.sp + 0xfffffffffffffcb0#64) 0x350) (c : BitVec 64) (n : Nat)
+    (hc : (c - 0xfffffffffffffcb0#64).toNat + n ≤ 0x350) :
+    ∀ i < n, ¬ (s0.sp + c + BitVec.ofNat 64 i - e).toNat < 0x78 := by
+  intro i hi
+  apply Nat.not_lt.mpr
+  apply far_e hd
+  rw [toNat_add_sub_add, BitVec.toNat_sub] at *
+  have := c.isLt
+  simp only [BitVec.toNat_ofNat] at *
+  omega
+
+/-- A byte of an object `[B, B+k)` is at least `n` before a range `[W, W+n)` above it. -/
+theorem far_below {a B W : BitVec 64} {k n : Nat} (hin : (a - B).toNat < k)
+    (hd : k ≤ (W - B).toNat) (hn : (W - B).toNat + n ≤ 2 ^ 64) : n ≤ (a - W).toNat := by
+  rw [← sub_add_sub' a B W, BitVec.toNat_add]
+  have h1 : (B - W).toNat = 2 ^ 64 - (W - B).toNat := by
+    rw [show B - W = 0#64 - (W - B) by grind, BitVec.toNat_sub]; simp only [BitVec.toNat_ofNat]
+    have := (W - B).isLt; omega
+  rw [h1]; have := (a - B).isLt; omega
 
 /-- `Inv` survives a change of memory that keeps the tracked bytes. -/
 theorem Inv.of_mem {s0 s s' : State} (h : Inv s0 s) (hsp : s'.sp = s.sp)
@@ -388,6 +456,79 @@ theorem tail (p : Program) (hp : p.Extends prog) (T : BitVec 64) (hc : Callees P
     show 7 ≤ (s4.mem.read64 (s0.sp + 8#64)).toNat
     rw [h4t]; exact htag
 
+
+set_option maxHeartbeats 2000000 in
+set_option maxRecDepth 100000 in
+/-- From `0x61028` (`x0` = the `KEYS` cell, `x8`/`x1` = its keys): build the
+slot map, call `interpret`, write the result, and continue with `tail`. -/
+theorem mid (p : Program) (hp : p.Extends prog) (T : BitVec 64) (hc : Callees P lo top p T)
+    (hfr : Frames P lo top) (hf : Facts P lo top) (hi : InterpretSpec P top p)
+    (s0 s : State) (env A : BitVec 64) (h : Inv s0 s) (hpc : s.pc = 0x61028#64)
+    (hst : s.status = .running) (hal0 : s0.sp &&& 15#64 = 0#64)
+    (hlo : 0x350 ≤ (s0.sp - lo).toNat) (htop : (s0.sp - lo).toNat + 0x100 ≤ (top - lo).toNat)
+    (htopS : 0x450 ≤ (top - (s0.sp + 0xfffffffffffffcb0#64)).toNat)
+    (hx0 : s.gpr 0 = A) (hKA : P.Keys A) (hAoff : ∀ i < 0x18, ¬ OnStack lo top (A + BitVec.ofNat 64 i))
+    (hx19 : s.gpr 19 = s0.sp + 8#64) (hx20 : s.gpr 20 = s0.gpr 2)
+    (hx24 : s.gpr 24 = s0.sp + 0xfffffffffffffe20#64) (hx29 : s.gpr 29 = s0.sp + 0xfffffffffffffff0#64)
+    (hev : P.EvalOf s.mem (s0.sp + 0xfffffffffffffcb0#64) env) (hwt : P.WT s.mem env (s0.gpr 2))
+    (heon : ∀ i < 0x78, OnStack lo top (s0.gpr 2 + BitVec.ofNat 64 i))
+    (hedisj : Memory.Disjoint (s0.gpr 2) 0x78 (s0.sp - 0x350#64) 0x350) :
+    Reaches p s fun s' => s'.pc = s0.gpr 30 ∧ s'.status = .running ∧
+      7 ≤ (s'.mem.read64 (s0.sp + 8#64)).toNat ∧ CalleeSaved s0 s' ∧
+      ∀ a, (a - s0.sp).toNat < 0x100 → 0xc8 ≤ (a - (s0.sp + 8#64)).toNat → s'.mem a = s0.mem a := by
+  have hsp := h.sp
+  have hal : s0.sp + 0xfffffffffffffcb0#64 &&& 15#64 = 0#64 := by bv_decide
+  -- KEYS.k0 += 1; the slot map (an empty `HashMap` with these keys) at `E - 0xb0`.
+  m1_step; m1_step; m1_step; m1_step; m1_step; m1_step; m1_step
+  -- interpret(&evaluator = sp, expr, &slots), result at sp + 0x170
+  m1_step; m1_step; m1_step; m1_step; m1_step; m1_step
+  have hedisj' : Memory.Disjoint (s0.gpr 2) 0x78 (s0.sp + 0xfffffffffffffcb0#64) 0x350 := by
+    rwa [show s0.sp - 0x350#64 = s0.sp + 0xfffffffffffffcb0#64 by grind] at hedisj
+  have hS := toNat_sub_add
+  refine Reaches.trans (hi env _ rfl rfl ⟨by simpa using hal, ?_, ?_⟩) ?_
+  · -- The evaluator survives the stores (KEYS cell, slot map).
+    simp only [upd, BitVec.reduceEq, ite_true, ite_false]
+    refine hfr.ev _ env s.mem _ hev ?_
+    intro a ha
+    rcases ha with hin | ⟨hoff, hnk⟩
+    · have hon : OnStack lo top a := onStack_of_frame lo top hlo htop (Nat.lt_of_lt_of_le hin (by decide))
+      have hA8 : 8 ≤ (a - A).toNat :=
+        Nat.le_trans (show 8 ≤ 0x18 by decide) (Mem.far_of (Q := OnStack lo top) hon hAoff)
+      have hst : ∀ c n, 0x170 ≤ (s0.sp + c - (s0.sp + 0xfffffffffffffcb0#64)).toNat →
+          (s0.sp + c - (s0.sp + 0xfffffffffffffcb0#64)).toNat + n ≤ 2 ^ 64 → n ≤ (a - (s0.sp + c)).toNat :=
+        fun c n h1 h2 => far_below hin h1 h2
+      rw [write64_keep _ (hst _ 8 ?_ ?_), write64_keep _ (hst _ 8 ?_ ?_),
+        Mem.write128_keep _ (hst _ 16 ?_ ?_), Mem.write128_keep _ (hst _ 16 ?_ ?_), write64_keep _ hA8]
+      all_goals (rw [add_sub_add_l]; simp only [BitVec.reduceSub, BitVec.reduceToNat]; omega)
+    · have hA8 : 8 ≤ (a - A).toNat := Nat.le_trans (show 8 ≤ 0x18 by decide) (hnk A hKA)
+      have hst : ∀ c n, (c - 0xfffffffffffffcb0#64).toNat + n ≤ 0x450 → n ≤ (a - (s0.sp + c)).toNat :=
+        fun c n hc => Mem.far_of (Q := fun x => ¬ OnStack lo top x) hoff fun i hi hn =>
+          hn (onStack_range lo top hlo htop c n hc i hi)
+      rw [write64_keep _ (hst _ 8 ?_), write64_keep _ (hst _ 8 ?_),
+        Mem.write128_keep _ (hst _ 16 ?_), Mem.write128_keep _ (hst _ 16 ?_), write64_keep _ hA8]
+      all_goals (simp only [BitVec.reduceSub, BitVec.reduceToNat]; omega)
+  · -- The expression stays well-typed.
+    simp only [upd, BitVec.reduceEq, ite_true, ite_false]
+    refine hfr.wt env _ s.mem _ hwt ?_
+    intro a ha
+    rcases ha with hin | ⟨hoff, hnk⟩
+    · have hon : OnStack lo top a := onStack_of_in lo top hin heon
+      have hA8 : 8 ≤ (a - A).toNat :=
+        Nat.le_trans (show 8 ≤ 0x18 by decide) (Mem.far_of (Q := OnStack lo top) hon hAoff)
+      have hst : ∀ c n, (c - 0xfffffffffffffcb0#64).toNat + n ≤ 0x350 → n ≤ (a - (s0.sp + c)).toNat :=
+        fun c n hc => Mem.far_of (Q := fun x => (x - s0.gpr 2).toNat < 0x78) hin
+          (far_e_range hedisj' c n hc)
+      rw [write64_keep _ (hst _ 8 ?_), write64_keep _ (hst _ 8 ?_),
+        Mem.write128_keep _ (hst _ 16 ?_), Mem.write128_keep _ (hst _ 16 ?_), write64_keep _ hA8]
+      all_goals (simp only [BitVec.reduceSub, BitVec.reduceToNat]; omega)
+    · have hA8 : 8 ≤ (a - A).toNat := Nat.le_trans (show 8 ≤ 0x18 by decide) (hnk A hKA)
+      have hst : ∀ c n, (c - 0xfffffffffffffcb0#64).toNat + n ≤ 0x450 → n ≤ (a - (s0.sp + c)).toNat :=
+        fun c n hc => Mem.far_of (Q := fun x => ¬ OnStack lo top x) hoff fun i hi hn =>
+          hn (onStack_range lo top hlo htop c n hc i hi)
+      rw [write64_keep _ (hst _ 8 ?_), write64_keep _ (hst _ 8 ?_),
+        Mem.write128_keep _ (hst _ 16 ?_), Mem.write128_keep _ (hst _ 16 ?_), write64_keep _ hA8]
+      all_goals (simp only [BitVec.reduceSub, BitVec.reduceToNat]; omega)
+  · sorry
 
 theorem eval_spec (p : Program) (hp : p.Extends prog) (T : BitVec 64)
     (hc : Callees P lo top p T) (hfr : Frames P lo top) (hf : Facts P lo top)
