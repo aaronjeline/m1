@@ -120,6 +120,14 @@ theorem copy48 (m m0 : Memory) (a b : BitVec 64) (i : Nat) (hi : i < 0x30) :
           (m.write128 b (m0.read128 a)) (b + BitVec.ofNat 64 i) = Memory.byte (m0.read128 a) i),
         byte_read128 _ _ _ (by omega)]
 
+/-- `copy48` with the six addresses given separately (so that it unifies with
+symbolic-execution output whose constant offsets are already folded). -/
+theorem copy48' (m m0 : Memory) (a1 a2 a3 b1 b2 b3 : BitVec 64) (ha2 : a2 = a1 + 16#64)
+    (ha3 : a3 = a1 + 32#64) (hb2 : b2 = b1 + 16#64) (hb3 : b3 = b1 + 32#64) (i : Nat) (hi : i < 0x30) :
+    (((m.write128 b1 (m0.read128 a1)).write128 b2 (m0.read128 a2)).write128 b3 (m0.read128 a3))
+      (b1 + BitVec.ofNat 64 i) = m0 (a1 + BitVec.ofNat 64 i) := by
+  subst ha2 ha3 hb2 hb3; exact copy48 m m0 a1 b1 i hi
+
 /-- `a` satisfies `Q` and no byte of `[w, w+n)` does: `a` is at least `n` past `w`. -/
 theorem far_of {Q : BitVec 64 → Prop} {a w : BitVec 64} {n : Nat} (ha : Q a)
     (hw : ∀ i < n, ¬ Q (w + BitVec.ofNat 64 i)) : n ≤ (a - w).toNat := by

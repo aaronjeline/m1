@@ -618,8 +618,84 @@ theorem mid (p : Program) (hp : p.Extends prog) (T : BitVec 64) (hc : Callees P 
     have hcmn := cond_eq_cmn
     m1_step; m1_step; m1_step; m1_step; m1_step; m1_step; m1_step; m1_step
     split
-    · -- `Ok(v)`
-      sorry
+    · -- `Ok(v)`: move the value next to the frame top and convert it.
+      rename_i ht1
+      have htm1 : t = 0xffffffffffffffff#64 := by bv_omega
+      have hval5 := h5ok htm1
+      simp only [BitVec.add_assoc, BitVec.reduceAdd] at hval5
+      m1_step; m1_step; m1_step; m1_step; m1_step; m1_step; m1_step
+      have hx0' : s0.sp + 0xfffffffffffffff0#64 - 112#64 = s0.sp + 0xffffffffffffff80#64 := by
+        simp only [BitVec.sub_eq_add_neg, BitVec.add_assoc, BitVec.reduceNeg, BitVec.reduceAdd]
+      refine Reaches.trans (hc.fromValue _ rfl rfl ⟨by simpa using hal, ?_⟩) ?_
+      · -- The value, moved from the interpreter's result to `E - 0x80`.
+        simp only [upd, BitVec.reduceEq, ite_true, ite_false, hx0']
+        refine hf.moveVal s5.mem _ (s0.sp + 0xfffffffffffffe28#64) (s0.sp + 0xffffffffffffff80#64) hval5
+          ?_ ?_
+        · intro i hi
+          exact Mem.copy48' _ _ _ _ _ _ _ _ (by simp only [BitVec.add_assoc, BitVec.reduceAdd])
+            (by simp only [BitVec.add_assoc, BitVec.reduceAdd])
+            (by simp only [BitVec.add_assoc, BitVec.reduceAdd])
+            (by simp only [BitVec.add_assoc, BitVec.reduceAdd]) i hi
+        · intro x hoff
+          have hst : ∀ c n, (c - 0xfffffffffffffcb0#64).toNat + n ≤ 0x450 → n ≤ (x - (s0.sp + c)).toNat :=
+            fun c n hc => Mem.far_of (Q := fun y => ¬ OnStack lo top y) hoff fun i hi hn =>
+              hn (onStack_range lo top hlo htop c n hc i hi)
+          simp (disch := (apply hst; simp only [BitVec.reduceSub, BitVec.reduceToNat]; omega))
+            only [Mem.write128_keep]
+      rintro s6 ⟨h6pc, h6st, h6cs, h6k, -, h6ev⟩
+      -- Before the call: the six stores are to the staging slot and `E - 0x80`.
+      have I6 : Inv s0 s6 := by
+        refine Inv.of_call top (Inv.of_mem I5 ?_ ?_ ?_ ?_ ?_ ?_) h6cs h6k htopS ?_
+        · simp [h5sp]
+        · simp [upd]
+        · simp [upd]
+        · vsame_tac
+        · rfl
+        · intro a ha
+          dsimp only
+          have h300 := ha.1
+          simp (disch := far_tac h300) only [Mem.write128_keep]
+        · out_tac
+      have hev6 : P.EvalOf s6.mem (s0.sp + 0xfffffffffffffcb0#64) env := by
+        apply h6ev
+        refine hfr.ev _ env s5.mem _ h5ev ?_
+        intro a ha
+        dsimp only
+        rcases ha with hin | ⟨hoff, hnk⟩
+        · simp (disch := far_tac hin) only [Mem.write128_keep]
+        · have hst : ∀ c n, (c - 0xfffffffffffffcb0#64).toNat + n ≤ 0x450 → n ≤ (a - (s0.sp + c)).toNat :=
+            fun c n hc => Mem.far_of (Q := fun x => ¬ OnStack lo top x) hoff fun i hi hn =>
+              hn (onStack_range lo top hlo htop c n hc i hi)
+          simp (disch := (apply hst; simp only [BitVec.reduceSub, BitVec.reduceToNat]; omega))
+            only [Mem.write128_keep]
+      have h6sp : s6.sp = s0.sp + 0xfffffffffffffcb0#64 := I6.sp
+      have h6x19 : s6.gpr 19 = s0.sp + 8#64 := (h6cs.1 19 (by decide) (by decide)).trans (by simp [upd, h5x19])
+      have h6x21 : s6.gpr 21 = s0.sp + 0xfffffffffffffcb0#64 :=
+        (h6cs.1 21 (by decide) (by decide)).trans (by simp [upd, h5x21])
+      simp only [upd, BitVec.reduceEq, ite_true, ite_false] at h6pc
+      -- x8 = -1 (`Ok`); store it as the result's tag.
+      m1_step; m1_step
+      refine Reaches.mono (to_tail P lo top p hp T hc hf s0 _ env ?_ rfl rfl hal0 ?_ htopS ?_ ?_) ?_
+      · refine Inv.of_mem I6 (by simp [h6sp]) (by simp [upd]) (by simp [upd]) (VSame.refl _) rfl ?_
+        intro a ha
+        dsimp only
+        rcases ha.2.2 with hlow | hhigh
+        · simp (disch := far_tac hlow) only [write64_keep]
+        · simp (disch := far_tac hhigh) only [write64_keep]
+      · simpa [upd] using h6x21
+      · dsimp only; rw [Memory.read64_write64_same]; decide
+      · refine hfr.ev _ env s6.mem _ hev6 ?_
+        intro a ha
+        dsimp only
+        rcases ha with hin | ⟨hoff, hnk⟩
+        · simp (disch := far_tac hin) only [write64_keep]
+        · have hst : ∀ c n, (c - 0xfffffffffffffcb0#64).toNat + n ≤ 0x450 → n ≤ (a - (s0.sp + c)).toNat :=
+            fun c n hc => Mem.far_of (Q := fun x => ¬ OnStack lo top x) hoff fun i hi hn =>
+              hn (onStack_range lo top hlo htop c n hc i hi)
+          simp (disch := (apply hst; simp only [BitVec.reduceSub, BitVec.reduceToNat]; omega))
+            only [write64_keep]
+      · intro s' h'
+        exact h'
     · -- `Err(e)` (not a type error): copy it into the result and store the tag.
       rename_i ht1
       m1_step; m1_step; m1_step; m1_step; m1_step; m1_step; m1_step; m1_step; m1_step; m1_step
