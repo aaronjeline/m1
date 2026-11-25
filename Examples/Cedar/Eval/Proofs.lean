@@ -162,6 +162,80 @@ theorem epilogue (p : Program) (hp : p.Extends prog) (s0 s : State) (h : Inv s0 
     simp [upd, e0, e1, e2, e3, e4, e5, e6, e7, e8, h25, h26]
   all_goals first | exact h.x25 | exact h.x26
 
+/-! ### The function's own stores -/
+
+theorem write64_keep {m : Memory} {w a : BitVec 64} (v : BitVec 64) (h : 8 ≤ (a - w).toNat) :
+    (m.write64 w v) a = m a := by
+  rw [Memory.writes64 m w v a]; simp only [ite_eq_right_iff]; omega
+theorem write128_keep {m : Memory} {w a : BitVec 64} (v : BitVec 128) (h : 16 ≤ (a - w).toNat) :
+    (m.write128 w v) a = m a := by
+  rw [Memory.writes128 m w v a]; simp only [ite_eq_right_iff]; omega
+theorem write32_keep {m : Memory} {w a : BitVec 64} (v : BitVec 32) (h : 4 ≤ (a - w).toNat) :
+    (m.write32 w v) a = m a := by
+  rw [Memory.writes32 m w v a]; simp only [ite_eq_right_iff]; omega
+theorem write8_keep {m : Memory} {w a : BitVec 64} (v : BitVec 8) (h : 1 ≤ (a - w).toNat) :
+    (m.write8 w v) a = m a := by
+  rw [Memory.writes8 m w v a]; simp only [ite_eq_right_iff]; omega
+
+theorem sub_add_sub' (a b c : BitVec 64) : a - b + (b - c) = a - c := by grind
+
+/-- A stack byte is at least `n` bytes past the start of an off-stack range of `n` bytes. -/
+theorem far_of_off {a w : BitVec 64} {n : Nat} (ha : OnStack lo top a)
+    (hw : ∀ i < n, ¬ OnStack lo top (w + BitVec.ofNat 64 i)) : n ≤ (a - w).toNat := by
+  apply Nat.not_lt.mp; intro hlt
+  apply hw _ hlt
+  have : w + BitVec.ofNat 64 (a - w).toNat = a := by
+    rw [BitVec.ofNat_toNat, BitVec.setWidth_eq, BitVec.add_comm, BitVec.sub_add_cancel]
+  rwa [this]
+
+/-- Tracked bytes are on the stack. -/
+theorem onStack_of_tracked {s0 : State} (hlo : 0x350 ≤ (s0.sp - lo).toNat)
+    (htop : (s0.sp - lo).toNat + 0x100 ≤ (top - lo).toNat) {a : BitVec 64}
+    (ha : Tracked (s0.sp + 0xfffffffffffffcb0#64) a) : OnStack lo top a := by
+  unfold OnStack; unfold Tracked at ha
+  have hS : (s0.sp + 0xfffffffffffffcb0#64 - lo).toNat = (s0.sp - lo).toNat - 0x350 := by
+    rw [BitVec.sub_add_comm.symm, BitVec.toNat_add]
+    simp only [BitVec.toNat_ofNat]
+    have := (s0.sp - lo).isLt
+    omega
+  have htl := (top - lo).isLt
+  rw [← sub_add_sub' a (s0.sp + 0xfffffffffffffcb0#64) lo, BitVec.toNat_add, hS]
+  omega
+
+/-- `Inv` survives a change of memory that keeps the tracked bytes. -/
+theorem Inv.of_mem {s0 s s' : State} (h : Inv s0 s) (hsp : s'.sp = s.sp)
+    (h25 : s'.gpr 25 = s.gpr 25) (h26 : s'.gpr 26 = s.gpr 26) (hv : s'.vreg = s.vreg)
+    (hf : s'.fpcr = s.fpcr)
+    (hm : ∀ a, Tracked (s0.sp + 0xfffffffffffffcb0#64) a → s'.mem a = s.mem a) : Inv s0 s' := by
+  have hag : Memory.Agree s'.mem s.mem (s0.sp + 0xfffffffffffffcb0#64 + 0x300#64) 0x50 := by
+    intro i hi
+    apply hm
+    unfold Tracked
+    rw [show s0.sp + 0xfffffffffffffcb0#64 + 0x300#64 + BitVec.ofNat 64 i - (s0.sp + 0xfffffffffffffcb0#64) =
+      0x300#64 + BitVec.ofNat 64 i by grind]
+    simp only [BitVec.toNat_add, BitVec.toNat_ofNat]; omega
+  have rd : ∀ j, j + 8 ≤ 0x50 → s'.mem.read64 (s0.sp + 0xfffffffffffffcb0#64 + 0x300#64 + BitVec.ofNat 64 j) =
+      s.mem.read64 (s0.sp + 0xfffffffffffffcb0#64 + 0x300#64 + BitVec.ofNat 64 j) :=
+    fun j hj => Memory.read64_congr (Mem.agree_sub hag j 8 hj)
+  have hsv := h.saved
+  unfold Saved at hsv
+  simp only [BitVec.add_assoc, BitVec.reduceAdd, BitVec.ofNat_eq_ofNat] at rd
+  have r0 := rd 0 (by decide); have r1 := rd 8 (by decide); have r2 := rd 16 (by decide)
+  have r3 := rd 24 (by decide); have r4 := rd 32 (by decide); have r5 := rd 40 (by decide)
+  have r6 := rd 48 (by decide); have r7 := rd 56 (by decide); have r8 := rd 64 (by decide)
+  have r9 := rd 72 (by decide)
+  simp only [BitVec.add_zero, BitVec.reduceAdd, BitVec.reduceOfNat] at r0 r1 r2 r3 r4 r5 r6 r7 r8 r9
+  refine ⟨hsp.trans h.sp, ?_, h25.trans h.x25, h26.trans h.x26, hv ▸ h.v, hf.trans h.fpcr, ?_⟩
+  · unfold Saved; rw [r0, r1, r2, r3, r4, r5, r6, r7, r8, r9]; exact hsv
+  · intro a h1 h2
+    rw [← h.above a h1 h2]
+    apply hm
+    unfold Tracked
+    rw [show a - (s0.sp + 0xfffffffffffffcb0#64) = (a - s0.sp) + 0x350#64 by grind]
+    rw [toNat_sub_add] at h2
+    simp only [BitVec.toNat_add, BitVec.toNat_ofNat] at h2 ⊢
+    omega
+
 set_option maxHeartbeats 1000000 in
 /-- From `0x61100` (result written): drop the evaluator's fields and return. -/
 theorem tail (p : Program) (hp : p.Extends prog) (T : BitVec 64) (hc : Callees P lo top p T)
@@ -184,7 +258,7 @@ theorem tail (p : Program) (hp : p.Extends prog) (T : BitVec 64) (hc : Callees P
   -- drop(evaluator.principal)
   m1_step; m1_step
   refine Reaches.trans (hc.dropUid _ rfl rfl ⟨by simpa [hsp] using hal, by simpa [upd, hx21] using hu1⟩) ?_
-  rintro s1 ⟨h1pc, h1st, h1cs, h1k, h1u, h1e, h1v⟩
+  rintro s1 ⟨h1pc, h1st, h1cs, h1k, -, h1u, h1e, h1v⟩
   have I1 : Inv s0 s1 := by
     refine Inv.of_call top (Inv.congr h ?_ ?_ ?_ ?_ ?_ ?_) h1cs h1k htopS ?_
     · simp [hsp]
@@ -213,7 +287,7 @@ theorem tail (p : Program) (hp : p.Extends prog) (T : BitVec 64) (hc : Callees P
   -- drop(evaluator.action)
   m1_step; m1_step
   refine Reaches.trans (hc.dropUid _ rfl rfl ⟨by simpa [h1sp] using hal, by simpa [upd, h1x21] using h1u2⟩) ?_
-  rintro s2 ⟨h2pc, h2st, h2cs, h2k, h2u, h2e, h2v⟩
+  rintro s2 ⟨h2pc, h2st, h2cs, h2k, -, h2u, h2e, h2v⟩
   have I2 : Inv s0 s2 := by
     refine Inv.of_call top (Inv.congr I1 ?_ ?_ ?_ ?_ ?_ ?_) h2cs h2k htopS ?_
     · simp [h1sp]
@@ -241,7 +315,7 @@ theorem tail (p : Program) (hp : p.Extends prog) (T : BitVec 64) (hc : Callees P
   -- drop(evaluator.resource)
   m1_step; m1_step
   refine Reaches.trans (hc.dropUid _ rfl rfl ⟨by simpa [h2sp] using hal, by simpa [upd, h2x21] using h2u3⟩) ?_
-  rintro s3 ⟨h3pc, h3st, h3cs, h3k, h3u, h3e, h3v⟩
+  rintro s3 ⟨h3pc, h3st, h3cs, h3k, -, h3u, h3e, h3v⟩
   have I3 : Inv s0 s3 := by
     refine Inv.of_call top (Inv.congr I2 ?_ ?_ ?_ ?_ ?_ ?_) h3cs h3k htopS ?_
     · simp [h2sp]
@@ -274,7 +348,7 @@ theorem tail (p : Program) (hp : p.Extends prog) (T : BitVec 64) (hc : Callees P
     m1_step; m1_step
     refine Reaches.trans (hc.dropExpr _ rfl rfl ⟨by simpa [h3sp] using hal,
       by simpa [upd, h3sp] using h3exp hw⟩) ?_
-    rintro s4 ⟨h4pc, h4st, h4cs, h4k, -⟩
+    rintro s4 ⟨h4pc, h4st, h4cs, h4k, -, -⟩
     have I4 : Inv s0 s4 := by
       refine Inv.of_call top (Inv.congr I3 ?_ ?_ ?_ ?_ ?_ ?_) h4cs h4k htopS ?_
       · simp [h3sp]
@@ -296,7 +370,7 @@ theorem tail (p : Program) (hp : p.Extends prog) (T : BitVec 64) (hc : Callees P
     m1_step; m1_step; m1_step
     refine Reaches.trans (hc.dropVal _ rfl rfl ⟨by simpa [h3sp] using hal,
       by simpa [upd, h3sp] using h3val hw⟩) ?_
-    rintro s4 ⟨h4pc, h4st, h4cs, h4k, -⟩
+    rintro s4 ⟨h4pc, h4st, h4cs, h4k, -, -⟩
     have I4 : Inv s0 s4 := by
       refine Inv.of_call top (Inv.congr I3 ?_ ?_ ?_ ?_ ?_ ?_) h4cs h4k htopS ?_
       · simp [h3sp]

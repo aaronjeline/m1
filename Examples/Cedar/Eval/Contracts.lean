@@ -78,11 +78,13 @@ structure Frames : Prop where
   uid : ∀ a, Framed P lo top a 0x50 (fun m => P.UidOK m a)
 
 /-- A call per the AAPCS64 that changes no stack byte above its `SP` other
-than the `n` bytes at `out s`. -/
+than the `n` bytes at `out s`, and does not change the TLV descriptor (dyld's
+`__thread_vars`, which Rust code never writes). -/
 def Contract (p : Program) (entry : BitVec 64) (pre : State → Prop) (out : State → BitVec 64)
     (n : Nat) (post : State → State → Prop) : Prop :=
   FunSpec p entry (fun s => s.sp &&& 15#64 = 0#64 ∧ pre s)
-    (fun s s' => CalleeSaved s s' ∧ Keeps top (out s) n s s' ∧ post s s')
+    (fun s s' => CalleeSaved s s' ∧ Keeps top (out s) n s s' ∧
+      s'.mem.read64 tlvDesc = s.mem.read64 tlvDesc ∧ post s s')
 
 /-- The callee preserves every well-typedness fact. -/
 def StableWT (s s' : State) : Prop := ∀ env e, P.WT s.mem env e → P.WT s'.mem env e

@@ -61,6 +61,74 @@ theorem disjoint_of_ne {a b : BitVec 64} {n k : Nat} (hn : 0 < n) (hk : 0 < k)
     simp only [BitVec.toNat_add, BitVec.toNat_ofNat, BitVec.toNat_sub]
     have := a.isLt; have := b.isLt; omega
 
+/-- The `i`-th byte of a 16-byte read. -/
+theorem byte_read128 (m : Memory) (r : BitVec 64) (i : Nat) (hi : i < 16) :
+    Memory.byte (m.read128 r) i = m (r + BitVec.ofNat 64 i) := by
+  rw [Memory.read128_eq]
+  match i, hi with
+  | 0, _ => simp only [Memory.byte, BitVec.ofNat_eq_ofNat, BitVec.add_zero]; bv_decide
+  | 1, _ => simp only [Memory.byte, BitVec.ofNat_eq_ofNat]; bv_decide
+  | 2, _ => simp only [Memory.byte, BitVec.ofNat_eq_ofNat]; bv_decide
+  | 3, _ => simp only [Memory.byte, BitVec.ofNat_eq_ofNat]; bv_decide
+  | 4, _ => simp only [Memory.byte, BitVec.ofNat_eq_ofNat]; bv_decide
+  | 5, _ => simp only [Memory.byte, BitVec.ofNat_eq_ofNat]; bv_decide
+  | 6, _ => simp only [Memory.byte, BitVec.ofNat_eq_ofNat]; bv_decide
+  | 7, _ => simp only [Memory.byte, BitVec.ofNat_eq_ofNat]; bv_decide
+  | 8, _ => simp only [Memory.byte, BitVec.ofNat_eq_ofNat]; bv_decide
+  | 9, _ => simp only [Memory.byte, BitVec.ofNat_eq_ofNat]; bv_decide
+  | 10, _ => simp only [Memory.byte, BitVec.ofNat_eq_ofNat]; bv_decide
+  | 11, _ => simp only [Memory.byte, BitVec.ofNat_eq_ofNat]; bv_decide
+  | 12, _ => simp only [Memory.byte, BitVec.ofNat_eq_ofNat]; bv_decide
+  | 13, _ => simp only [Memory.byte, BitVec.ofNat_eq_ofNat]; bv_decide
+  | 14, _ => simp only [Memory.byte, BitVec.ofNat_eq_ofNat]; bv_decide
+  | 15, _ => simp only [Memory.byte, BitVec.ofNat_eq_ofNat]; bv_decide
+  | _ + 16, h => exact absurd h (by omega)
+
+/-- The `i`-th byte written by a 16-byte store. -/
+theorem write128_byte (m : Memory) (w : BitVec 64) (v : BitVec 128) (i : Nat) (hi : i < 16) :
+    (m.write128 w v) (w + BitVec.ofNat 64 i) = Memory.byte v i :=
+  (Memory.writes128 m w v).read_byte i hi (by decide)
+
+/-- A store at `w` of `n` bytes leaves `a` alone when `a` is at least `n` past `w`. -/
+theorem write128_keep {m : Memory} {w a : BitVec 64} (v : BitVec 128) (h : 16 ≤ (a - w).toNat) :
+    (m.write128 w v) a = m a := by
+  rw [Memory.writes128 m w v a]; simp only [ite_eq_right_iff]; omega
+
+/-- Three 16-byte loads from `a` stored at `b`, `b + 16`, `b + 32` copy 48 bytes. -/
+theorem copy48 (m m0 : Memory) (a b : BitVec 64) (i : Nat) (hi : i < 0x30) :
+    (((m.write128 b (m0.read128 a)).write128 (b + 16#64) (m0.read128 (a + 16#64))).write128
+      (b + 32#64) (m0.read128 (a + 32#64))) (b + BitVec.ofNat 64 i) = m0 (a + BitVec.ofNat 64 i) := by
+  have off : ∀ c : Nat, c ≤ i → b + BitVec.ofNat 64 i = (b + BitVec.ofNat 64 c) + BitVec.ofNat 64 (i - c) := by
+    intro c hc; rw [BitVec.add_assoc]; congr 1
+    apply BitVec.eq_of_toNat_eq; simp only [BitVec.toNat_add, BitVec.toNat_ofNat]; omega
+  have offa : ∀ c : Nat, c ≤ i → a + BitVec.ofNat 64 i = (a + BitVec.ofNat 64 c) + BitVec.ofNat 64 (i - c) := by
+    intro c hc; rw [BitVec.add_assoc]; congr 1
+    apply BitVec.eq_of_toNat_eq; simp only [BitVec.toNat_add, BitVec.toNat_ofNat]; omega
+  have far : ∀ c : Nat, i < c → c ≤ 0x30 → 16 ≤ (b + BitVec.ofNat 64 i - (b + BitVec.ofNat 64 c)).toNat := by
+    intro c h1 h2
+    rw [show b + BitVec.ofNat 64 i - (b + BitVec.ofNat 64 c) = BitVec.ofNat 64 i - BitVec.ofNat 64 c by
+      grind]
+    rw [BitVec.toNat_sub]; simp only [BitVec.toNat_ofNat]; omega
+  by_cases h32 : 32 ≤ i
+  · rw [off 32 h32, write128_byte _ _ _ _ (by omega), byte_read128 _ _ _ (by omega), ← offa 32 h32]
+  · rw [write128_keep _ (by simpa using far 32 (by omega) (by omega))]
+    by_cases h16 : 16 ≤ i
+    · rw [off 16 h16, write128_byte _ _ _ _ (by omega), byte_read128 _ _ _ (by omega), ← offa 16 h16]
+    · rw [write128_keep _ (by simpa using far 16 (by omega) (by omega)),
+        show b + BitVec.ofNat 64 i = b + BitVec.ofNat 64 i from rfl,
+        (by simpa using write128_byte m b (m0.read128 a) i (by omega) :
+          (m.write128 b (m0.read128 a)) (b + BitVec.ofNat 64 i) = Memory.byte (m0.read128 a) i),
+        byte_read128 _ _ _ (by omega)]
+
+/-- `a` satisfies `Q` and no byte of `[w, w+n)` does: `a` is at least `n` past `w`. -/
+theorem far_of {Q : BitVec 64 → Prop} {a w : BitVec 64} {n : Nat} (ha : Q a)
+    (hw : ∀ i < n, ¬ Q (w + BitVec.ofNat 64 i)) : n ≤ (a - w).toNat := by
+  apply Nat.not_lt.mp; intro hlt
+  apply hw _ hlt
+  have : w + BitVec.ofNat 64 (a - w).toNat = a := by
+    rw [BitVec.ofNat_toNat, BitVec.setWidth_eq, BitVec.add_comm, BitVec.sub_add_cancel]
+  rwa [this]
+
 end Mem
 
 end Examples.Cedar
