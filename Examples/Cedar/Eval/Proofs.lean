@@ -293,6 +293,23 @@ theorem far_above {a B W : BitVec 64} {k n : Nat} (hin : k ≤ (a - B).toNat)
     BitVec.toNat_sub_of_le (x := a - B) (y := W - B) (by rw [BitVec.le_def]; omega)]
   omega
 
+/-- A stack byte is far from any part `[A + d, A + d + n)` of an off-stack `KEYS` cell. -/
+theorem keys_far_on {a A : BitVec 64} (ha : OnStack lo top a)
+    (hoff : ∀ i < 0x18, ¬ OnStack lo top (A + BitVec.ofNat 64 i)) (d n : Nat) (h : d + n ≤ 0x18) :
+    n ≤ (a - (A + BitVec.ofNat 64 d)).toNat := by
+  apply Mem.far_of (Q := OnStack lo top) ha
+  intro i hi
+  rw [BitVec.add_assoc, show BitVec.ofNat 64 d + BitVec.ofNat 64 i = BitVec.ofNat 64 (d + i) by
+    apply BitVec.eq_of_toNat_eq; simp [BitVec.toNat_add, Nat.add_mod]]
+  exact hoff _ (by omega)
+
+/-- A byte at least `0x18` past `A` is far from any part of the cell at `A`. -/
+theorem keys_far_off {a A : BitVec 64} (ha : 0x18 ≤ (a - A).toNat) (d n : Nat) (h : d + n ≤ 0x18) :
+    n ≤ (a - (A + BitVec.ofNat 64 d)).toNat := by
+  rw [toNat_sub_add, BitVec.toNat_ofNat]
+  have := (a - A).isLt
+  omega
+
 /-- `Inv` survives a change of memory that keeps the tracked bytes. -/
 theorem Inv.of_mem {s0 s s' : State} (h : Inv s0 s) (hsp : s'.sp = s.sp)
     (h25 : s'.gpr 25 = s.gpr 25) (h26 : s'.gpr 26 = s.gpr 26) (hv : VSame s s')
@@ -835,7 +852,109 @@ theorem eval_spec (p : Program) (hp : p.Extends prog) (T : BitVec 64)
   refine Reaches.trans (hc.new (s.gpr 0) _ rfl rfl ⟨by simpa [h2sp] using hal,
     by simpa [upd, h2sp] using h2req, by simp [upd, h2x21], by simpa [upd, h2x23] using h1ext⟩) ?_
   rintro s3 ⟨h3pc, h3st, h3cs, h3k, h3tlv, h3ev, h3wt⟩
-  trace_state
-  sorry
+  have I3 : Inv s s3 := by
+    refine Inv.of_call top (Inv.congr I2 ?_ ?_ ?_ ?_ ?_ ?_) h3cs h3k htopS ?_
+    · simp [h2sp]
+    · rfl
+    · simp [upd]
+    · simp [upd]
+    · exact VSame.refl _
+    · rfl
+    · out_tac
+  have hwt3 : P.WT s3.mem (s.gpr 0) (s.gpr 2) := h3wt _ _ hwt2
+  have htlv3 : s3.mem.read64 0x43e5e0#64 = T := h3tlv.trans htlv2
+  have hev3 : P.EvalOf s3.mem (s.sp + 0xfffffffffffffcb0#64) (s.gpr 0) := by simpa [upd, h2sp] using h3ev
+  have h3sp : s3.sp = s.sp + 0xfffffffffffffcb0#64 := I3.sp
+  have h3x19 : s3.gpr 19 = s.sp + 8#64 := (h3cs.1 19 (by decide) (by decide)).trans (by simp [upd, h2x19])
+  have h3x20 : s3.gpr 20 = s.gpr 2 := (h3cs.1 20 (by decide) (by decide)).trans (by simp [upd, h2x20])
+  have h3x24 : s3.gpr 24 = s.sp + 0xfffffffffffffe20#64 :=
+    (h3cs.1 24 (by decide) (by decide)).trans (by simp [upd, h2x24])
+  have h3x29 : s3.gpr 29 = s.sp + 0xfffffffffffffff0#64 :=
+    (h3cs.1 29 (by decide) (by decide)).trans (by simp [upd, h2x29])
+  simp only [upd, BitVec.reduceEq, ite_true, ite_false] at h3pc
+  -- The KEYS thread-local: x0 = descriptor, x8 = its thunk (T), blr x8.
+  m1_step; m1_step; m1_step; m1_step
+  refine Reaches.trans (hc.thunk _ rfl rfl ⟨by simpa [h3sp] using hal, trivial⟩) ?_
+  rintro s4 ⟨h4pc, h4st, h4cs, h4k, h4tlv, h4keys, h4off, h4wt, h4ev⟩
+  have I4 : Inv s s4 := by
+    refine Inv.of_call top (Inv.congr I3 ?_ ?_ ?_ ?_ ?_ ?_) h4cs h4k htopS (fun a _ => Nat.zero_le _)
+    · simp [h3sp]
+    · rfl
+    · simp [upd]
+    · simp [upd]
+    · exact VSame.refl _
+    · rfl
+  have hwt4 : P.WT s4.mem (s.gpr 0) (s.gpr 2) := h4wt _ _ hwt3
+  have hev4 : P.EvalOf s4.mem (s.sp + 0xfffffffffffffcb0#64) (s.gpr 0) := h4ev _ _ hev3
+  have h4sp : s4.sp = s.sp + 0xfffffffffffffcb0#64 := I4.sp
+  have h4x19 : s4.gpr 19 = s.sp + 8#64 := (h4cs.1 19 (by decide) (by decide)).trans (by simp [upd, h3x19])
+  have h4x20 : s4.gpr 20 = s.gpr 2 := (h4cs.1 20 (by decide) (by decide)).trans (by simp [upd, h3x20])
+  have h4x24 : s4.gpr 24 = s.sp + 0xfffffffffffffe20#64 :=
+    (h4cs.1 24 (by decide) (by decide)).trans (by simp [upd, h3x24])
+  have h4x29 : s4.gpr 29 = s.sp + 0xfffffffffffffff0#64 :=
+    (h4cs.1 29 (by decide) (by decide)).trans (by simp [upd, h3x29])
+  simp only [upd, BitVec.reduceEq, ite_true, ite_false] at h4pc
+  generalize hA : s4.gpr 0 = A at h4keys h4off
+  -- Is KEYS initialised (byte at +0x10)?
+  m1_step; m1_step; m1_step
+  split
+  · -- No: hashmap_random_keys(), then store the keys and the flag.
+    m1_step; m1_step
+    refine Reaches.trans (hc.randomKeys _ rfl rfl ⟨by simpa [h4sp] using hal, trivial⟩) ?_
+    rintro s5 ⟨h5pc, h5st, h5cs, h5k, -, h5wt, h5ev⟩
+    have I5 : Inv s s5 := by
+      refine Inv.of_call top (Inv.congr I4 ?_ ?_ ?_ ?_ ?_ ?_) h5cs h5k htopS (fun a _ => Nat.zero_le _)
+      · simp [h4sp]
+      · rfl
+      · simp [upd]
+      · simp [upd]
+      · exact VSame.refl _
+      · rfl
+    have hwt5 : P.WT s5.mem (s.gpr 0) (s.gpr 2) := h5wt _ _ hwt4
+    have hev5 : P.EvalOf s5.mem (s.sp + 0xfffffffffffffcb0#64) (s.gpr 0) := h5ev _ _ hev4
+    have h5sp : s5.sp = s.sp + 0xfffffffffffffcb0#64 := I5.sp
+    have h5x19 : s5.gpr 19 = s.sp + 8#64 := (h5cs.1 19 (by decide) (by decide)).trans (by simp [upd, h4x19])
+    have h5x20 : s5.gpr 20 = s.gpr 2 := (h5cs.1 20 (by decide) (by decide)).trans (by simp [upd, h4x20])
+    have h5x21 : s5.gpr 21 = A := (h5cs.1 21 (by decide) (by decide)).trans (by simp [upd])
+    have h5x24 : s5.gpr 24 = s.sp + 0xfffffffffffffe20#64 :=
+      (h5cs.1 24 (by decide) (by decide)).trans (by simp [upd, h4x24])
+    have h5x29 : s5.gpr 29 = s.sp + 0xfffffffffffffff0#64 :=
+      (h5cs.1 29 (by decide) (by decide)).trans (by simp [upd, h4x29])
+    simp only [upd, BitVec.reduceEq, ite_true, ite_false] at h5pc
+    m1_step; m1_step; m1_step; m1_step; m1_step; m1_step
+    refine Reaches.mono (mid P lo top p hp T hc hfr hf hi s _ (s.gpr 0) A ?_ rfl rfl hsp hlo htop htopS
+      (by simp [upd, h5x21]) h4keys h4off (by simp [upd, h5x19]) (by simp [upd, h5x20])
+      (by simp [upd, h5x24]) (by simp [upd, h5x29]) ?_ ?_ heon hdisj) (fun _ h' => h')
+    · refine Inv.of_mem I5 (by simp [h5sp]) (by simp [upd]) (by simp [upd]) (VSame.refl _) rfl ?_
+      intro a ha
+      have hon := onStack_of_tracked lo top hlo htop ha
+      dsimp only
+      rw [write8_keep _ (keys_far_on lo top hon h4off 16 1 (by decide)),
+        write64_keep _ (keys_far_on lo top hon h4off 8 8 (by decide))]
+    · refine hfr.ev _ _ s5.mem _ hev5 ?_
+      intro a ha
+      dsimp only
+      rcases ha with hin | ⟨hoff, hnk⟩
+      · have hon : OnStack lo top a := onStack_of_frame lo top hlo htop (Nat.lt_of_lt_of_le hin (by decide))
+        rw [write8_keep _ (keys_far_on lo top hon h4off 16 1 (by decide)),
+          write64_keep _ (keys_far_on lo top hon h4off 8 8 (by decide))]
+      · rw [write8_keep _ (keys_far_off (hnk A h4keys) 16 1 (by decide)),
+          write64_keep _ (keys_far_off (hnk A h4keys) 8 8 (by decide))]
+    · refine hfr.wt _ _ s5.mem _ hwt5 ?_
+      intro a ha
+      dsimp only
+      rcases ha with hin | ⟨hoff, hnk⟩
+      · have hon : OnStack lo top a := onStack_of_in lo top hin heon
+        rw [write8_keep _ (keys_far_on lo top hon h4off 16 1 (by decide)),
+          write64_keep _ (keys_far_on lo top hon h4off 8 8 (by decide))]
+      · rw [write8_keep _ (keys_far_off (hnk A h4keys) 16 1 (by decide)),
+          write64_keep _ (keys_far_off (hnk A h4keys) 8 8 (by decide))]
+  · -- Yes: load the keys.
+    m1_step
+    refine Reaches.mono (mid P lo top p hp T hc hfr hf hi s _ (s.gpr 0) A
+      (Inv.congr I4 (by simp [h4sp]) rfl (by simp [upd]) (by simp [upd]) (VSame.refl _) rfl)
+      rfl rfl hsp hlo htop htopS (by simp [upd, hA]) h4keys h4off (by simp [upd, h4x19])
+      (by simp [upd, h4x20]) (by simp [upd, h4x24]) (by simp [upd, h4x29]) hev4 hwt4 heon hdisj)
+      (fun _ h' => h')
 
 end Examples.Cedar.Eval
