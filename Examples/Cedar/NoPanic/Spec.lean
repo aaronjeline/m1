@@ -1,5 +1,6 @@
 import M1
 import Examples.Cedar.Eval.Contracts
+import Examples.Cedar.NoPanic.Sinks
 
 /-!
 # The evaluator never panics: statement and contract shape
@@ -44,5 +45,8 @@ def NPContractN (p : Program) (B : BitVec 64 → Prop) (top : BitVec 64) (entry 
   SafeFun p B entry (fun s => s.sp &&& 15#64 = 0#64 ∧ pre s)
     (fun s s' => CalleeSaved s s' ∧ Keeps top (out s) n s s' ∧
       s'.mem.read64 tlvDesc = s.mem.read64 tlvDesc ∧ post s s') k
+
+/-- `NPContract` with the bad PCs fixed to `Panic` (the panic machinery). -/
+abbrev NP (p : Program) := NPContract p Panic
 
 end Examples.Cedar.NoPanic

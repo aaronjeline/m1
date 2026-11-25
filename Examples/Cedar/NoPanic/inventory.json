@@ -26,7 +26,7 @@
   "indirect": {
    "switch": 14,
    "call": 34,
-   "jump": 6
+   "tail": 6
   },
   "externals": 23
  },
@@ -5494,7 +5494,7 @@
     {
      "site": "0x34e71c",
      "insn": "br x3",
-     "kind": "jump"
+     "kind": "tail"
     }
    ],
    "ext_calls": [],
@@ -7335,7 +7335,7 @@
     {
      "site": "0x9ab78",
      "insn": "br x3",
-     "kind": "jump"
+     "kind": "tail"
     }
    ],
    "ext_calls": [
@@ -7619,7 +7619,7 @@
     {
      "site": "0xbd9d4",
      "insn": "br x3",
-     "kind": "jump"
+     "kind": "tail"
     }
    ],
    "ext_calls": [
@@ -8045,7 +8045,7 @@
     {
      "site": "0x23c6c0",
      "insn": "br x3",
-     "kind": "jump"
+     "kind": "tail"
     }
    ],
    "ext_calls": [
@@ -14012,7 +14012,7 @@
     {
      "site": "0xbd4dc",
      "insn": "br x3",
-     "kind": "jump"
+     "kind": "tail"
     }
    ],
    "ext_calls": [],
@@ -15525,7 +15525,7 @@
     {
      "site": "0x1f8d34",
      "insn": "br x3",
-     "kind": "jump"
+     "kind": "tail"
     }
    ],
    "ext_calls": [
@@ -32549,7 +32549,7 @@
    "name": "core::panicking::panic_in_cleanup",
    "mangled": "__RNvNtCskumHb0IaX0X_4core9panicking16panic_in_cleanup",
    "kind": "panicking::panic_in_cleanup",
-   "abbrev": "in_cleanup",
+   "abbrev": "panic_in_cleanup",
    "sites": 2
   },
   "0x34edc0": {
@@ -32563,7 +32563,7 @@
    "name": "core::panicking::panic_fmt",
    "mangled": "__RNvNtCskumHb0IaX0X_4core9panicking9panic_fmt",
    "kind": "panicking::panic_fmt",
-   "abbrev": "fmt",
+   "abbrev": "panic_fmt",
    "sites": 13
   },
   "0x34fa2c": {
@@ -32577,7 +32577,7 @@
    "name": "core::slice::sort::shared::smallsort::panic_on_ord_violation",
    "mangled": "__RNvNtNtNtNtCskumHb0IaX0X_4core5slice4sort6shared9smallsort22panic_on_ord_violation",
    "kind": "smallsort::panic_on_ord_violation",
-   "abbrev": "on_ord_violation",
+   "abbrev": "panic_on_ord_violation",
    "sites": 3
   }
  },

@@ -19,7 +19,7 @@ Reachability follows direct calls (`bl`) and tail calls (`b` to another symbol's
 | panic call sites | 172 in 99 functions |
 | inline traps (`brk`/`udf`) | 56 in 56 functions |
 | indirect calls (`blr`) | 34 |
-| indirect jumps (`br`): switch tables / other | 14 / 6 |
+| indirect jumps (`br`): switch tables / indirect tail calls | 14 / 6 |
 | distinct externals called | 23 (401 sites) |
 | functions with no callees, no panic sites, no traps, no indirect branches | 6 |
 | anomalies (calls into function bodies, conditional tail branches) | 0 |
@@ -32,17 +32,17 @@ Reachability follows direct calls (`bl`) and tail calls (`b` to another symbol's
 | `alloc::handle_alloc_error` | handle_alloc_error | `0x3490c4` | 42 |
 | `raw_vec::handle_error` | handle_error | `0x3490dc` | 31 |
 | `panicking::panic` | panic | `0x34edc0` | 16 |
-| `panicking::panic_fmt` | fmt | `0x34edd4` | 13 |
+| `panicking::panic_fmt` | panic_fmt | `0x34edd4` | 13 |
 | `result::unwrap_failed` | result.unwrap | `0x34ebe4` | 8 |
 | `index::slice_index_fail` | slice_index_fail | `0x34fa2c` | 7 |
-| `smallsort::panic_on_ord_violation` | on_ord_violation | `0x3503b8` | 3 |
+| `smallsort::panic_on_ord_violation` | panic_on_ord_violation | `0x3503b8` | 3 |
 | `panicking::assert_failed<usize, usize>` | assert_failed | `0x349944` | 2 |
-| `panicking::panic_in_cleanup` | in_cleanup | `0x34ec4c` | 2 |
+| `panicking::panic_in_cleanup` | panic_in_cleanup | `0x34ec4c` | 2 |
 | `option::expect_failed` | option.expect | `0x34eb98` | 2 |
 | `panicking::assert_failed<i32, i32>` | assert_failed | `0x32351c` | 1 |
 | `str::slice_error_fail` | slice_error_fail | `0x34e748` | 1 |
 
-Call sites per sink kind: option.unwrap 44, handle_alloc_error 42, handle_error 31, panic 16, fmt 13, result.unwrap 8, slice_index_fail 7, assert_failed 3, on_ord_violation 3, in_cleanup 2, option.expect 2, slice_error_fail 1.
+Call sites per sink kind: option.unwrap 44, handle_alloc_error 42, handle_error 31, panic 16, panic_fmt 13, result.unwrap 8, slice_index_fail 7, assert_failed 3, panic_on_ord_violation 3, panic_in_cleanup 2, option.expect 2, slice_error_fail 1.
 
 ## Externals called
 
@@ -102,7 +102,7 @@ Call sites per sink kind: option.unwrap 44, handle_alloc_error 42, handle_error 
 
 ## Functions, bottom-up
 
-Callees come before callers; members of one SCC are adjacent. `scc*` = recursive SCC. Panic sites are given per sink kind (abbreviations above). `ind` = indirect calls/jumps (`c`=blr, `j`=br, `s`=switch-table br).
+Callees come before callers; members of one SCC are adjacent. `scc*` = recursive SCC. Panic sites are given per sink kind (abbreviations above). `ind` = indirect calls/jumps (`c`=`blr` indirect call, `t`=`br` indirect tail call, `s`=switch-table `br`).
 
 | # | addr | insns | function | scc | callees | panic sites | traps | ind |
 |---|---|---|---|---|---|---|---|---|
@@ -132,7 +132,7 @@ Callees come before callers; members of one SCC are adjacent. `scc*` = recursive
 | 23 | `0xb21f0` | 132 | `<IntoIter<Value, SetValZST>>::dying_next [.llvm.12851281728886759461]` | 17 | 0 | option.unwrap:2 |  |  |
 | 24 | `0x26c9bc` | 85 | `<RawTable<(Literal, ())> as Drop>::drop` | 18 | 2 |  |  |  |
 | 25 | `0x1253c4` | 23 | `<Arc<HashSet<Literal>>>::drop_slow` | 19 | 1 |  |  |  |
-| 26 | `0x10ff18` | 66 | `ptr::drop_glue<OnceLock<(Name, Vec<RestrictedExpr>)>> [.llvm.12754525049149521526]` | 20 | 4 | fmt:1 |  |  |
+| 26 | `0x10ff18` | 66 | `ptr::drop_glue<OnceLock<(Name, Vec<RestrictedExpr>)>> [.llvm.12754525049149521526]` | 20 | 4 | panic_fmt:1 |  |  |
 | 27 | `0x124d4c` | 39 | `<Arc<dyn InternalExtensionValue>>::drop_slow` | 21 | 0 |  |  | c1 |
 | 28 | `0x1258f0` | 31 | `<Arc<RepresentableExtensionValue>>::drop_slow` | 22 | 2 |  |  |  |
 | 29 | `0x9dda0` | 89 | `ptr::drop_glue<Value> [.llvm.12851281728886759461]` | 23* | 7 |  |  |  |
@@ -156,19 +156,19 @@ Callees come before callers; members of one SCC are adjacent. `scc*` = recursive
 | 47 | `0x33d5f8` | 73 | `<ThreadNameString as From<String>>::from` | 38 | 2 | result.unwrap:1 | 1 |  |
 | 48 | `0x349050` | 29 | `sync::arcinner_layout_for_value_layout` | 39 | 0 | result.unwrap:1 |  |  |
 | 49 | `0x338c60` | 11 | `<Arc<MaybeUninit<Inner>, System>>::drop_slow` | 40 | 0 |  |  |  |
-| 50 | `0x333ed8` | 98 | `<Thread>::new` | 41 | 3 | fmt:1 handle_alloc_error:1 | 1 |  |
+| 50 | `0x333ed8` | 98 | `<Thread>::new` | 41 | 3 | handle_alloc_error:1 panic_fmt:1 | 1 |  |
 | 51 | `0x338d2c` | 28 | `<Arc<Inner, System>>::drop_slow` | 42 | 0 |  |  |  |
-| 52 | `0x33d400` | 8 | `<ThreadId>::new::exhausted` | 43 | 0 | fmt:1 |  |  |
-| 53 | `0x34e594` | 109 | `fmt::write` | 44 | 0 |  |  | c4 j1 |
+| 52 | `0x33d400` | 8 | `<ThreadId>::new::exhausted` | 43 | 0 | panic_fmt:1 |  |  |
+| 53 | `0x34e594` | 109 | `fmt::write` | 44 | 0 |  |  | c4 t1 |
 | 54 | `0x322d24` | 45 | `ptr::drop_glue<Error>` | 45 | 0 |  |  | c1 |
-| 55 | `0x340a58` | 39 | `<Stderr as Write>::write_fmt` | 46 | 2 | fmt:1 in_cleanup:1 | 1 |  |
+| 55 | `0x340a58` | 39 | `<Stderr as Write>::write_fmt` | 46 | 2 | panic_fmt:1 panic_in_cleanup:1 | 1 |  |
 | 56 | `0x321f60` | 4 | `ptr::drop_glue<Result<(), Error>>` | 47 | 1 |  |  |  |
 | 57 | `0x33cd00` | 3 | `unix::abort_internal` | 48 | 0 |  |  |  |
 | 58 | `0x33977c` | 3 | `process::abort` | 49 | 1 |  |  |  |
-| 59 | `0x33a240` | 79 | `current::init_current` | 50 | 5 | fmt:1 | 1 | c3 |
+| 59 | `0x33a240` | 79 | `current::init_current` | 50 | 5 | panic_fmt:1 | 1 | c3 |
 | 60 | `0x33d27c` | 97 | `queue::wait` | 51 | 4 |  | 1 | c2 |
 | 61 | `0x323254` | 53 | `ptr::drop_glue<WaiterQueue>` | 52 | 1 | assert_failed:1 | 1 |  |
-| 62 | `0x32e750` | 125 | `<Once>::call` | 53 | 3 | assert_failed:1 fmt:1 in_cleanup:1 | 1 | c1 |
+| 62 | `0x32e750` | 125 | `<Once>::call` | 53 | 3 | assert_failed:1 panic_fmt:1 panic_in_cleanup:1 | 1 | c1 |
 | 63 | `0x1f6310` | 115 | `<Value>::get_as_entity` | 54 | 3 |  | 1 |  |
 | 64 | `0xc04ec` | 122 | `<Hasher<Sip13Rounds> as Hasher>::write [.llvm.12851281728886759461]` | 55 | 0 |  |  |  |
 | 65 | `0xa9868` | 71 | `<RandomState as BuildHasher>::hash_one<&SlotId>` | 56 | 1 |  |  |  |
@@ -195,7 +195,7 @@ Callees come before callers; members of one SCC are adjacent. `scc*` = recursive
 | 86 | `0xe1314` | 3 | `_OUTLINED_FUNCTION_1` | 77 | 1 |  |  |  |
 | 87 | `0xe1320` | 2 | `_OUTLINED_FUNCTION_2` | 78 | 0 |  |  |  |
 | 88 | `0xc988c` | 16 | `<OnceLock<(Name, Vec<RestrictedExpr>)>>::initialize<<OnceLock<(Name, Vec<…:repr::{closure#0}>::{closure#0}, !>` | 79 | 3 |  |  |  |
-| 89 | `0x13ee1c` | 110 | `<RestrictedExpr as From<RepresentableExtensionValue>>::from` | 80 | 4 | fmt:1 handle_alloc_error:1 option.expect:1 |  |  |
+| 89 | `0x13ee1c` | 110 | `<RestrictedExpr as From<RepresentableExtensionValue>>::from` | 80 | 4 | handle_alloc_error:1 option.expect:1 panic_fmt:1 |  |  |
 | 90 | `0xc984c` | 16 | `<OnceLock<(Name, Vec<RestrictedExpr>)>>::initialize<<OnceLock<(Name, Vec<…nsert::{closure#0}>::{closure#0}, !>` | 81 | 3 |  |  |  |
 | 91 | `0xc7a60` | 42 | `<IntoIter<SmolStr, Value> as Drop>::drop` | 82 | 3 |  |  |  |
 | 92 | `0x13b4b4` | 655 | `<Expr as From<ValueKind>>::from` | 83* | 21 | handle_alloc_error:1 handle_error:2 option.unwrap:1 panic:1 result.unwrap:1 | 1 |  |
@@ -257,7 +257,7 @@ Callees come before callers; members of one SCC are adjacent. `scc*` = recursive
 | 148 | `0xa9bd0` | 69 | `<RandomState as BuildHasher>::hash_one<&Literal>` | 139 | 1 |  |  |  |
 | 149 | `0xbf464` | 192 | `<BTreeMap<SmolStr, Value> as PartialEq>::eq` | 140* | 1 | option.unwrap:2 |  |  |
 | 150 | `0xbff20` | 127 | `<BTreeMap<Value, SetValZST> as PartialEq>::eq` | 140* | 1 | option.unwrap:2 |  |  |
-| 151 | `0x1f8b9c` | 347 | `<ValueKind as PartialEq>::eq` | 140* | 5 |  |  | j1 |
+| 151 | `0x1f8b9c` | 347 | `<ValueKind as PartialEq>::eq` | 140* | 5 |  |  | t1 |
 | 152 | `0x72038` | 138 | `<Vec<Type> as SpecFromIter<Type, Chain<Once<Type>, IntoIter<Type>>>>::from_iter` | 141 | 1 | handle_error:1 |  |  |
 | 153 | `0x107c3c` | 176 | `<IntoIter<Type> as Itertools>::join` | 142 | 3 | handle_error:1 result.unwrap:2 |  |  |
 | 154 | `0x3491a8` | 111 | `format::format_inner` | 143 | 1 | handle_error:1 result.unwrap:1 | 1 |  |
@@ -265,15 +265,15 @@ Callees come before callers; members of one SCC are adjacent. `scc*` = recursive
 | 156 | `0xe0cc0` | 110 | `<<Type as PartialOrd>::lt as FnMut<(&Type, &Type)>>::call_mut` | 145 | 1 |  |  |  |
 | 157 | `0xd2ae0` | 137 | `smallsort::insertion_sort_shift_left<Type, <Type as PartialOrd>::lt>` | 146 | 2 |  | 1 |  |
 | 158 | `0x3503d8` | 11 | `drift::sqrt_approx` | 147 | 0 |  |  |  |
-| 159 | `0xd4300` | 440 | `smallsort::small_sort_general_with_scratch<Type, <Type as PartialOrd>::lt>` | 148 | 2 | on_ord_violation:1 | 1 |  |
+| 159 | `0xd4300` | 440 | `smallsort::small_sort_general_with_scratch<Type, <Type as PartialOrd>::lt>` | 148 | 2 | panic_on_ord_violation:1 | 1 |  |
 | 160 | `0x23d694` | 110 | `<<Type as PartialOrd>::lt as FnMut<(&Type, &Type)>>::call_mut` | 149 | 1 |  |  |  |
 | 161 | `0x287054` | 110 | `<<Type as PartialOrd>::lt as FnMut<(&Type, &Type)>>::call_mut [.llvm.4595567767768807451]` | 150 | 1 |  |  |  |
 | 162 | `0x270e9c` | 58 | `pivot::median3_rec<Type, <Type as PartialOrd>::lt>` | 151* | 2 |  |  |  |
 | 163 | `0x22702c` | 110 | `<<Type as PartialOrd>::lt as FnMut<(&Type, &Type)>>::call_mut` | 152 | 1 |  |  |  |
 | 164 | `0x20e084` | 345 | `drift::sort<Type, <Type as PartialOrd>::lt>` | 153* | 4 |  |  |  |
-| 165 | `0x22a928` | 411 | `quicksort::quicksort<Type, <Type as PartialOrd>::lt>` | 153* | 6 | fmt:1 slice_index_fail:1 | 1 |  |
+| 165 | `0x22a928` | 411 | `quicksort::quicksort<Type, <Type as PartialOrd>::lt>` | 153* | 6 | panic_fmt:1 slice_index_fail:1 | 1 |  |
 | 166 | `0x227d58` | 68 | `stable::driftsort_main<Type, <Type as PartialOrd>::lt, Vec<Type>>` | 154 | 1 | handle_error:1 |  |  |
-| 167 | `0x1aae04` | 502 | `evaluator::binary_relation` | 155 | 15 | fmt:1 handle_error:1 | 1 | c11 |
+| 167 | `0x1aae04` | 502 | `evaluator::binary_relation` | 155 | 15 | handle_error:1 panic_fmt:1 | 1 | c11 |
 | 168 | `0x1c3de8` | 43 | `<EntityType as Clone>::clone` | 156 | 1 |  | 1 |  |
 | 169 | `0x12271c` | 39 | `<Expr>::is_entity_type` | 157 | 0 | handle_alloc_error:1 |  |  |
 | 170 | `0x122ce4` | 36 | `<Expr>::get_attr` | 158 | 0 | handle_alloc_error:1 |  |  |
@@ -283,11 +283,11 @@ Callees come before callers; members of one SCC are adjacent. `scc*` = recursive
 | 174 | `0x8e854` | 370 | `<NodeRef<Owned, SmolStr, Val…>::bulk_push<DedupSortedIter<SmolStr, Value, IntoIter<(SmolStr, Value)>>, Global>` | 162 | 4 | handle_alloc_error:2 option.unwrap:1 panic:3 |  |  |
 | 175 | `0xcada4` | 124 | `smallsort::insert_tail<(SmolStr, Value), <[(SmolStr, Value)]>::sor…>::{closure#0}> [.llvm.6602555188565358827]` | 163 | 0 |  |  |  |
 | 176 | `0xcdf10` | 285 | `smallsort::sort4_stable<(SmolStr, Value), <[(SmolStr, Value)]>::sort_by<<…Value>>>::{closure#0}>::{closure#0}>` | 164 | 0 |  |  |  |
-| 177 | `0xd9904` | 480 | `smallsort::small_sort_general_with_scratch<(SmolStr, Value), <[(SmolStr, …ure#0}>>::{closure#0}>::{closure#0}>` | 165 | 1 | on_ord_violation:1 | 1 |  |
+| 177 | `0xd9904` | 480 | `smallsort::small_sort_general_with_scratch<(SmolStr, Value), <[(SmolStr, …ure#0}>>::{closure#0}>::{closure#0}>` | 165 | 1 | panic_on_ord_violation:1 | 1 |  |
 | 178 | `0x272798` | 167 | `pivot::median3_rec<(SmolStr, Value), <[(SmolStr, Value)]>::sort_by<<BTree…ure#0}>>::{closure#0}>::{closure#0}>` | 166* | 1 |  |  |  |
 | 179 | `0x27525c` | 167 | `merge::merge<(SmolStr, Value), <[(SmolStr, Value)]>::sort_by<<BTreeMap<Sm…ure#0}>>::{closure#0}>::{closure#0}>` | 167 | 0 |  |  |  |
 | 180 | `0x2132d4` | 401 | `drift::sort<(SmolStr, Value), <[(SmolStr, Value)]>::sort_by<<BTreeMap<Smo…ure#0}>>::{closure#0}>::{closure#0}>` | 168* | 3 |  |  |  |
-| 181 | `0x231618` | 467 | `quicksort::quicksort<(SmolStr, Value), <[(SmolStr, Value)]>::sort_by<<BTr…ure#0}>>::{closure#0}>::{closure#0}>` | 168* | 4 | fmt:1 slice_index_fail:1 | 1 |  |
+| 181 | `0x231618` | 467 | `quicksort::quicksort<(SmolStr, Value), <[(SmolStr, Value)]>::sort_by<<BTr…ure#0}>>::{closure#0}>::{closure#0}>` | 168* | 4 | panic_fmt:1 slice_index_fail:1 | 1 |  |
 | 182 | `0x228a80` | 70 | `stable::driftsort_main<(SmolStr, Value), <[(SmolStr, Value)]>::sort_by<…>::{closure#0}, Vec<(SmolStr, Value)>>` | 169 | 1 | handle_error:1 |  |  |
 | 183 | `0xa538c` | 125 | `<BTreeMap<SmolStr, Value> as FromIterator<(SmolStr, Value)>>::from_iter<M…r>, IntoIter<Value>>>::{closure#0}>>` | 170 | 4 | handle_alloc_error:1 handle_error:1 |  |  |
 | 184 | `0x1ebeb0` | 33 | `<Value>::record<SmolStr, Value, Zip<IntoIter<SmolStr>, IntoIter<Value>>>` | 171 | 1 | handle_alloc_error:1 |  |  |
@@ -298,24 +298,24 @@ Callees come before callers; members of one SCC are adjacent. `scc*` = recursive
 | 189 | `0xe084c` | 110 | `<Literal as PartialOrd>::partial_cmp` | 176 | 1 |  |  |  |
 | 190 | `0xa7c60` | 87 | `<Iter<SmolStr, Valu…>::{closure#0}, ControlFlow<ControlFlow<Ordering, Ordering>>> [.llvm.12851281728886759461]` | 177* | 2 |  |  |  |
 | 191 | `0xa8384` | 141 | `<Iter<Value, SetValZST> as Iterator>::cmp_by<Iter<Value, SetValZST>, <Ite…ter<Value, SetValZST>>::{closure#0}>` | 177* | 1 | option.unwrap:2 |  |  |
-| 192 | `0xbd848` | 358 | `<Value as Ord>::cmp [.llvm.12851281728886759461]` | 177* | 2 | option.unwrap:2 |  | j1 |
+| 192 | `0xbd848` | 358 | `<Value as Ord>::cmp [.llvm.12851281728886759461]` | 177* | 2 | option.unwrap:2 |  | t1 |
 | 193 | `0x1f9200` | 39 | `<Set as PartialOrd>::partial_cmp` | 178 | 1 |  |  |  |
-| 194 | `0xbd360` | 314 | `<Value as PartialOrd>::partial_cmp [.llvm.12851281728886759461]` | 179* | 3 | option.unwrap:2 |  | j1 |
+| 194 | `0xbd360` | 314 | `<Value as PartialOrd>::partial_cmp [.llvm.12851281728886759461]` | 179* | 3 | option.unwrap:2 |  | t1 |
 | 195 | `0xa7dbc` | 152 | `<Iter<SmolStr, Value> as Iterator>::partial_cmp_by<Iter<SmolStr, Value>, …<Iter<SmolStr, Value>>::{closure#0}>` | 180 | 2 | option.unwrap:2 |  |  |
 | 196 | `0xe0e78` | 90 | `<<Value as PartialOrd>::lt as FnMut<(&Value, &Value)>>::call_mut` | 181 | 3 |  |  | c1 |
 | 197 | `0xd2d04` | 137 | `smallsort::insertion_sort_shift_left<Value, <Value as PartialOrd>::lt>` | 182 | 4 |  | 1 | c1 |
-| 198 | `0xd49e0` | 624 | `smallsort::small_sort_general_with_scratch<Value, <Value as PartialOrd>::lt>` | 183 | 6 | on_ord_violation:1 | 1 | c2 |
+| 198 | `0xd49e0` | 624 | `smallsort::small_sort_general_with_scratch<Value, <Value as PartialOrd>::lt>` | 183 | 6 | panic_on_ord_violation:1 | 1 | c2 |
 | 199 | `0x23d84c` | 203 | `<<Value as PartialOrd>::lt as FnMut<(&Value, &Value)>>::call_mut` | 184 | 3 |  |  | c1 |
 | 200 | `0x284ea4` | 110 | `<Literal as PartialOrd>::partial_cmp` | 185 | 1 |  |  |  |
 | 201 | `0x28720c` | 120 | `<<Value as PartialOrd>::lt as FnMut<(&Value, &Value)>>::call_mut [.llvm.4595567767768807451]` | 186 | 3 |  |  | c1 |
 | 202 | `0x270f84` | 59 | `pivot::median3_rec<Value, <Value as PartialOrd>::lt>` | 187* | 2 |  |  |  |
 | 203 | `0x2271e4` | 173 | `<<Value as PartialOrd>::lt as FnMut<(&Value, &Value)>>::call_mut` | 188 | 3 |  |  | c1 |
 | 204 | `0x20e5e8` | 345 | `drift::sort<Value, <Value as PartialOrd>::lt>` | 189* | 4 |  |  |  |
-| 205 | `0x22af94` | 247 | `quicksort::quicksort<Value, <Value as PartialOrd>::lt>` | 189* | 5 | fmt:1 slice_index_fail:1 | 1 |  |
+| 205 | `0x22af94` | 247 | `quicksort::quicksort<Value, <Value as PartialOrd>::lt>` | 189* | 5 | panic_fmt:1 slice_index_fail:1 | 1 |  |
 | 206 | `0x227e68` | 68 | `stable::driftsort_main<Value, <Value as PartialOrd>::lt, Vec<Value>>` | 190 | 1 | handle_error:1 |  |  |
 | 207 | `0x23a13c` | 130 | `<BTreeSet<Value> as FromIterator<Value>>::from_iter<IntoIter<Value>>` | 191 | 4 | handle_alloc_error:1 |  |  |
 | 208 | `0x348b68` | 9 | `<Fallibility>::alloc_err` | 192 | 0 | handle_alloc_error:1 |  |  |
-| 209 | `0x348b3c` | 11 | `<Fallibility>::capacity_overflow` | 193 | 0 | fmt:1 |  |  |
+| 209 | `0x348b3c` | 11 | `<Fallibility>::capacity_overflow` | 193 | 0 | panic_fmt:1 |  |  |
 | 210 | `0x24dd4c` | 100 | `<RawTableInner>::fallible_with_capacity<Global> [.llvm.11200677267175775789]` | 194 | 2 |  |  |  |
 | 211 | `0x248370` | 274 | `<RawTable<(Literal, ())>>::reserve_rehash<map::make_hasher<Literal, (), RandomState>::{closure#0}>` | 195 | 3 |  |  |  |
 | 212 | `0x1de760` | 146 | `<HashMap<Literal, (), RandomState>>::insert` | 196 | 5 |  |  |  |
@@ -340,7 +340,7 @@ Callees come before callers; members of one SCC are adjacent. `scc*` = recursive
 | 231 | `0x1a0950` | 74 | `<Evaluator>::get_attr::{closure#1}` | 215 | 2 |  | 1 |  |
 | 232 | `0x1f61a4` | 45 | `<Value>::get_as_set` | 216 | 1 |  | 1 |  |
 | 233 | `0x207acc` | 40 | `<EvaluationError>::type_error_single` | 217 | 1 |  | 1 |  |
-| 234 | `0x1aaaa0` | 217 | `evaluator::binary_arith` | 218 | 3 | fmt:1 | 1 |  |
+| 234 | `0x1aaaa0` | 217 | `evaluator::binary_arith` | 218 | 3 | panic_fmt:1 | 1 |  |
 | 235 | `0x27c59c` | 67 | `<Entity>::get` | 219 | 0 |  |  |  |
 | 236 | `0x1a0640` | 86 | `<Evaluator>::get_attr::{closure#6}` | 220 | 4 |  | 1 |  |
 | 237 | `0x1a0798` | 110 | `<Evaluator>::get_attr::{closure#7}` | 221 | 3 |  | 1 |  |
@@ -348,12 +348,12 @@ Callees come before callers; members of one SCC are adjacent. `scc*` = recursive
 | 239 | `0x1f9164` | 39 | `<Set as Ord>::cmp` | 223 | 1 |  |  |  |
 | 240 | `0xa801c` | 57 | `<Iter<SmolStr, Value> as Iterator>::cmp_by<Iter<SmolStr, Value>, <Iter<Sm…<Iter<SmolStr, Value>>::{closure#0}>` | 224 | 1 | option.unwrap:2 |  |  |
 | 241 | `0x9a7d4` | 143 | `<InternalName as Ord>::cmp` | 225 | 0 |  |  |  |
-| 242 | `0x9aa10` | 199 | `<Value as Ord>::cmp [.llvm.13465962479199416136]` | 226 | 3 |  |  | j1 |
+| 242 | `0x9aa10` | 199 | `<Value as Ord>::cmp [.llvm.13465962479199416136]` | 226 | 3 |  |  | t1 |
 | 243 | `0x1f6e5c` | 94 | `<Set>::contains` | 227 | 3 |  |  |  |
 | 244 | `0x122c18` | 51 | `<Expr>::has_tag` | 228 | 0 | handle_alloc_error:1 |  |  |
 | 245 | `0x23b334` | 169 | `<HashSet<Literal>>::is_disjoint` | 229 | 2 |  |  |  |
 | 246 | `0x23c2e4` | 143 | `<InternalName as Ord>::cmp [.llvm.7875525832594653720]` | 230 | 0 |  |  |  |
-| 247 | `0x23c520` | 227 | `<Value as Ord>::cmp` | 231 | 3 |  |  | j1 |
+| 247 | `0x23c520` | 227 | `<Value as Ord>::cmp` | 231 | 3 |  |  | t1 |
 | 248 | `0x23b86c` | 318 | `<BTreeSet<Value>>::is_disjoint` | 232 | 2 | option.unwrap:1 |  |  |
 | 249 | `0x1f6e2c` | 12 | `<Set>::is_disjoint` | 233 | 2 |  |  |  |
 | 250 | `0xc4e3c` | 67 | `<Iter<Value, SetValZST> as DoubleEndedIterator>::next_back` | 234 | 0 | option.unwrap:2 |  |  |
@@ -443,7 +443,7 @@ For each site: the sink called (or trap), the guarding branches (conditional bra
 
 ### #26 `0x10ff18` ptr::drop_glue<OnceLock<(Name, Vec<RestrictedExpr>)>> [.llvm.12754525049149521526]
 
-- `0x11001c` fmt (`0x34edd4`)
+- `0x11001c` panic_fmt (`0x34edd4`)
   - guards: `0x10ff48: cbnz x8, 0x110008` (jump)
   - context: `adrp x2, 0x3f3000` ; `add x2, x2, #0x388` ; `mov w1, #0x79 ; =121`
 
@@ -527,7 +527,7 @@ For each site: the sink called (or trap), the guarding branches (conditional bra
 
 ### #50 `0x333ed8` <Thread>::new
 
-- `0x333ff0` fmt (`0x34edd4`)
+- `0x333ff0` panic_fmt (`0x34edd4`)
   - guards: `0x333fb4: cbz x0, 0x333fdc` (jump)
   - context: `adrp x2, 0x436000` ; `add x2, x2, #0x5e8` ; `mov w1, #0x7d ; =125`
 - `0x334000` handle_alloc_error (`0x3490c4`)
@@ -539,25 +539,25 @@ For each site: the sink called (or trap), the guarding branches (conditional bra
 
 ### #52 `0x33d400` <ThreadId>::new::exhausted
 
-- `0x33d41c` fmt (`0x34edd4`)
+- `0x33d41c` panic_fmt (`0x34edd4`)
   - guards: none found (unconditional on this path)
   - context: `adr x2, 0x4369e8` ; `nop` ; `mov w1, #0x6f ; =111`
 
 ### #55 `0x340a58` <Stderr as Write>::write_fmt
 
-- `0x340aac` fmt (`0x34edd4`)
+- `0x340aac` panic_fmt (`0x34edd4`)
   - guards: `0x340a94: cbnz x0, 0x340ac4` (fallthrough)
   - context: `adr x2, 0x4362e0` ; `nop` ; `mov w1, #0xad ; =173`
 - `0x340ab0` trap `brk #0x1`
   - guards: none found (unconditional on this path)
   - context: `nop` ; `mov w1, #0xad ; =173` ; `bl 0x34edd4`
-- `0x340af0` in_cleanup (`0x34ec4c`)
+- `0x340af0` panic_in_cleanup (`0x34ec4c`)
   - guards: `0x340adc: cbz x8, 0x340ae8` (jump); `0x340adc: cbz x8, 0x340ae8` (fallthrough)
   - context: `bl 0x322d24` ; `mov x0, x19` ; `bl 0x355bd4`
 
 ### #59 `0x33a240` current::init_current
 
-- `0x33a374` fmt (`0x34edd4`)
+- `0x33a374` panic_fmt (`0x34edd4`)
   - guards: `0x33a338: b.ne 0x33a360` (jump); `0x33a338: b.ne 0x33a360` (fallthrough)
   - context: `adr x2, 0x4368f0` ; `nop` ; `mov w1, #0xbd ; =189`
 - `0x33a378` trap `brk #0x1`
@@ -587,10 +587,10 @@ For each site: the sink called (or trap), the guarding branches (conditional bra
 - `0x32e910` trap `brk #0x1`
   - guards: `0x32e88c: tbnz x9, #0x3f, 0x32e910` (jump)
   - context: `mov w0, #0x0 ; =0` ; `mov x3, #0x0 ; =0` ; `bl 0x349944`
-- `0x32e924` fmt (`0x34edd4`)
+- `0x32e924` panic_fmt (`0x34edd4`)
   - guards: `0x32e7ac: b.ne 0x32e914` (jump)
   - context: `nop` ; `mov w1, #0x55 ; =85` ; `mov x2, x4`
-- `0x32e940` in_cleanup (`0x34ec4c`)
+- `0x32e940` panic_in_cleanup (`0x34ec4c`)
   - guards: none found (unconditional on this path)
   - context: `bl 0x323254` ; `mov x0, x20` ; `bl 0x355bd4`
 
@@ -716,7 +716,7 @@ For each site: the sink called (or trap), the guarding branches (conditional bra
 - `0x13ee84` option.expect (`0x34eb98`) msg "repr populated above"
   - guards: `0x13eec8: b.eq 0x13ee70` (jump); `0x13ee64: b.hs 0x13ee88` (fallthrough)
   - context: `adrp x2, 0x3f4000` ; `add x2, x2, #0x7f0` ; `mov w1, #0x14 ; =20`
-- `0x13efc4` fmt (`0x34edd4`)
+- `0x13efc4` panic_fmt (`0x34edd4`)
   - guards: `0x13ee88: cbnz x9, 0x13efb0` (jump)
   - context: `adrp x2, 0x3f3000` ; `add x2, x2, #0x388` ; `mov w1, #0x79 ; =121`
 - `0x13efd0` handle_alloc_error (`0x3490c4`)
@@ -995,7 +995,7 @@ For each site: the sink called (or trap), the guarding branches (conditional bra
 
 ### #159 `0xd4300` smallsort::small_sort_general_with_scratch<Type, <Type as PartialOrd>::lt>
 
-- `0xd49d8` on_ord_violation (`0x3503b8`)
+- `0xd49d8` panic_on_ord_violation (`0x3503b8`)
   - guards: `0xd49a8: b.ne 0xd49d8` (jump); `0xd49b4: b.ne 0xd49d8` (jump)
   - context: `ldp x28, x27, [sp, #0xd0]` ; `add sp, sp, #0x130` ; `ret`
 - `0xd49dc` trap `brk #0x1`
@@ -1007,7 +1007,7 @@ For each site: the sink called (or trap), the guarding branches (conditional bra
 - `0x22af64` trap `brk #0x1`
   - guards: `0x22aa54: b.lo 0x22af64` (jump); `0x22acc8: b.lo 0x22af64` (jump)
   - context: `add x23, x23, x19, lsl #6` ; `ldr x20, [sp, #0x10]` ; `b 0x22a964`
-- `0x22af7c` fmt (`0x34edd4`)
+- `0x22af7c` panic_fmt (`0x34edd4`)
   - guards: `0x22ac98: b.lo 0x22af68` (jump)
   - context: `adrp x2, 0x3fc000` ; `add x2, x2, #0x940` ; `mov w1, #0x13 ; =19`
 - `0x22af90` slice_index_fail (`0x34fa2c`)
@@ -1028,7 +1028,7 @@ For each site: the sink called (or trap), the guarding branches (conditional bra
 - `0x1ab4e0` trap `brk #0x1`
   - guards: `0x1ab118: b 0x1ab4e0` (jump); `0x1ab1d0: b 0x1ab4e0` (jump); `0x1ab260: b 0x1ab4e0` (jump); `0x1ab4dc: tbz x9, #0x3f, 0x1ab4e4` (fallthrough)
   - context: `mov w9, #0x1 ; =1` ; `ldadd x9, x9, [x8]` ; `tbz x9, #0x3f, 0x1ab4e4`
-- `0x1ab5a4` fmt (`0x34edd4`)
+- `0x1ab5a4` panic_fmt (`0x34edd4`)
   - guards: `0x1aae44: b.ne 0x1ab590` (jump)
   - context: `adrp x2, 0x3f8000` ; `add x2, x2, #0xc88` ; `mov w1, #0xbd ; =189`
 
@@ -1073,7 +1073,7 @@ For each site: the sink called (or trap), the guarding branches (conditional bra
 
 ### #177 `0xd9904` smallsort::small_sort_general_with_scratch<(SmolStr, Value), <[(SmolStr, Value)]>::sort_by<<BTreeMap<SmolS…r<Value>>>::{closure#0}>>::{closure#0}>::{closure#0}>
 
-- `0xda07c` on_ord_violation (`0x3503b8`)
+- `0xda07c` panic_on_ord_violation (`0x3503b8`)
   - guards: `0xda04c: b.ne 0xda07c` (jump); `0xda058: b.ne 0xda07c` (jump)
   - context: `ldp x28, x27, [sp, #0xa0]` ; `add sp, sp, #0x100` ; `ret`
 - `0xda080` trap `brk #0x1`
@@ -1085,7 +1085,7 @@ For each site: the sink called (or trap), the guarding branches (conditional bra
 - `0x231d30` trap `brk #0x1`
   - guards: `0x231964: b.lo 0x231d30` (jump); `0x231b38: b.lo 0x231d30` (jump)
   - context: `mov w8, #0x48 ; =72` ; `madd x23, x28, x8, x23` ; `b 0x231654`
-- `0x231d48` fmt (`0x34edd4`)
+- `0x231d48` panic_fmt (`0x34edd4`)
   - guards: `0x231b00: b.lo 0x231d34` (jump)
   - context: `adrp x2, 0x3fc000` ; `add x2, x2, #0x940` ; `mov w1, #0x13 ; =19`
 - `0x231d60` slice_index_fail (`0x34fa2c`)
@@ -1196,7 +1196,7 @@ For each site: the sink called (or trap), the guarding branches (conditional bra
 
 ### #198 `0xd49e0` smallsort::small_sort_general_with_scratch<Value, <Value as PartialOrd>::lt>
 
-- `0xd5398` on_ord_violation (`0x3503b8`)
+- `0xd5398` panic_on_ord_violation (`0x3503b8`)
   - guards: `0xd5374: b.ne 0xd5398` (jump)
   - context: `ldp x28, x27, [sp, #0x150]` ; `add sp, sp, #0x1b0` ; `ret`
 - `0xd539c` trap `brk #0x1`
@@ -1208,7 +1208,7 @@ For each site: the sink called (or trap), the guarding branches (conditional bra
 - `0x22b33c` trap `brk #0x1`
   - guards: `0x22b0c0: b.lo 0x22b33c` (jump); `0x22b1e0: b.lo 0x22b33c` (jump)
   - context: `madd x22, x19, x8, x22` ; `ldr x24, [sp, #0x8]` ; `b 0x22afd0`
-- `0x22b354` fmt (`0x34edd4`)
+- `0x22b354` panic_fmt (`0x34edd4`)
   - guards: `0x22b1ac: b.lo 0x22b340` (jump)
   - context: `adrp x2, 0x3fc000` ; `add x2, x2, #0x940` ; `mov w1, #0x13 ; =19`
 - `0x22b36c` slice_index_fail (`0x34fa2c`)
@@ -1235,7 +1235,7 @@ For each site: the sink called (or trap), the guarding branches (conditional bra
 
 ### #209 `0x348b3c` <Fallibility>::capacity_overflow
 
-- `0x348b64` fmt (`0x34edd4`)
+- `0x348b64` panic_fmt (`0x34edd4`)
   - guards: `0x348b3c: cbnz w0, 0x348b48` (jump)
   - context: `adr x2, 0x437640` ; `nop` ; `mov w1, #0x39 ; =57`
 
@@ -1313,7 +1313,7 @@ For each site: the sink called (or trap), the guarding branches (conditional bra
 - `0x1aaaf8` trap `brk #0x1`
   - guards: `0x1aab30: b 0x1aaaf8` (jump); `0x1aac40: b 0x1aaaf8` (jump); `0x1aac80: b 0x1aaaf8` (jump); `0x1aad04: b 0x1aaaf8` (jump); `0x1aaaf4: tbz x9, #0x3f, 0x1aab34` (fallthrough)
   - context: `mov w9, #0x1 ; =1` ; `ldadd x9, x9, [x8]` ; `tbz x9, #0x3f, 0x1aab34`
-- `0x1aaccc` fmt (`0x34edd4`)
+- `0x1aaccc` panic_fmt (`0x34edd4`)
   - guards: `0x1aabf8: b.ne 0x1aacb8` (jump)
   - context: `adrp x2, 0x3f8000` ; `add x2, x2, #0xc70` ; `mov w1, #0xbd ; =189`
 
