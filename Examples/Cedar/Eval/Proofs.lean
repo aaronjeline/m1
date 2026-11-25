@@ -480,6 +480,40 @@ theorem tail (p : Program) (hp : p.Extends prog) (T : BitVec 64) (hc : Callees P
     rw [h4t]; exact htag
 
 
+/-- From `0x61100` with the evaluator intact: unpack its fields and run `tail`. -/
+theorem to_tail (p : Program) (hp : p.Extends prog) (T : BitVec 64) (hc : Callees P lo top p T)
+    (hf : Facts P lo top) (s0 s : State) (env : BitVec 64) (h : Inv s0 s)
+    (hpc : s.pc = 0x61100#64) (hst : s.status = .running) (hal0 : s0.sp &&& 15#64 = 0#64)
+    (hx21 : s.gpr 21 = s0.sp + 0xfffffffffffffcb0#64)
+    (htopS : 0x450 ≤ (top - (s0.sp + 0xfffffffffffffcb0#64)).toNat)
+    (htag : 7 ≤ (s.mem.read64 (s0.sp + 8#64)).toNat)
+    (hev : P.EvalOf s.mem (s0.sp + 0xfffffffffffffcb0#64) env) :
+    Reaches p s fun s' => s'.pc = s0.gpr 30 ∧ s'.status = .running ∧
+      7 ≤ (s'.mem.read64 (s0.sp + 8#64)).toNat ∧ CalleeSaved s0 s' ∧
+      ∀ a, (a - s0.sp).toNat < 0x100 → 0xc8 ≤ (a - (s0.sp + 8#64)).toNat → s'.mem a = s0.mem a := by
+  obtain ⟨u1, u2, u3, hv, he⟩ := hf.fields _ _ _ hev
+  simp only [BitVec.add_assoc, BitVec.reduceAdd] at u1 u2 u3 hv he
+  have hal : s0.sp + 0xfffffffffffffcb0#64 &&& 15#64 = 0#64 := by bv_decide
+  exact tail P lo top p hp T hc s0 s h hpc hst hal0 hx21 hal htopS htag u1 u2 u3 hv he
+
+/-- Arithmetic side goal `(s0.sp + c - (s0.sp + d)).toNat ⋯` with literal `c`, `d`. -/
+macro "lit_tac" : tactic => `(tactic| (
+  rw [add_sub_add_l]; simp only [BitVec.reduceSub, BitVec.reduceToNat]; omega))
+
+/-- `n ≤ (a - W).toNat` for a store at `W` above or below the byte `a`. -/
+macro "far_tac" hk:term : tactic => `(tactic| (
+  first
+    | (apply far_above $hk:term; lit_tac)
+    | (apply far_below $hk:term <;> lit_tac)))
+
+/-- `VSame` for code that only writes `v0`–`v2`. -/
+macro "vsame_tac" : tactic => `(tactic| (
+  intro r h1 h2
+  have h0 : r ≠ 0#5 := by bv_omega
+  have h1' : r ≠ 1#5 := by bv_omega
+  have h2' : r ≠ 2#5 := by bv_omega
+  simp [upd, h0, h1', h2']))
+
 set_option maxHeartbeats 2000000 in
 set_option maxRecDepth 100000 in
 /-- From `0x61028` (`x0` = the `KEYS` cell, `x8`/`x1` = its keys): build the
@@ -507,7 +541,6 @@ theorem mid (p : Program) (hp : p.Extends prog) (T : BitVec 64) (hc : Callees P 
   m1_step; m1_step; m1_step; m1_step; m1_step; m1_step
   have hedisj' : Memory.Disjoint (s0.gpr 2) 0x78 (s0.sp + 0xfffffffffffffcb0#64) 0x350 := by
     rwa [show s0.sp - 0x350#64 = s0.sp + 0xfffffffffffffcb0#64 by grind] at hedisj
-  have hS := toNat_sub_add
   refine Reaches.trans (hi env _ rfl rfl ⟨by simpa using hal, ?_, ?_⟩) ?_
   · -- The evaluator survives the stores (KEYS cell, slot map).
     simp only [upd, BitVec.reduceEq, ite_true, ite_false]
@@ -571,8 +604,51 @@ theorem mid (p : Program) (hp : p.Extends prog) (T : BitVec 64) (hc : Callees P 
           Mem.write128_keep _ (hst _ 16 ?_), Mem.write128_keep _ (hst _ 16 ?_), write64_keep _ hA8]
         all_goals (rw [add_sub_add_l]; simp only [BitVec.reduceSub, BitVec.reduceToNat]; omega)
       · out_tac
-    trace_state
-    sorry
+    have h5x19 : s5.gpr 19 = s0.sp + 8#64 := (h5cs.1 19 (by decide) (by decide)).trans (by simp [upd, hx19])
+    have h5x20 : s5.gpr 20 = s0.gpr 2 := (h5cs.1 20 (by decide) (by decide)).trans (by simp [upd, hx20])
+    have h5x21 : s5.gpr 21 = s0.sp + 0xfffffffffffffcb0#64 :=
+      (h5cs.1 21 (by decide) (by decide)).trans (by simp [upd])
+    have h5x24 : s5.gpr 24 = s0.sp + 0xfffffffffffffe20#64 :=
+      (h5cs.1 24 (by decide) (by decide)).trans (by simp [upd, hx24])
+    have h5x29 : s5.gpr 29 = s0.sp + 0xfffffffffffffff0#64 :=
+      (h5cs.1 29 (by decide) (by decide)).trans (by simp [upd, hx29])
+    have h5sp : s5.sp = s0.sp + 0xfffffffffffffcb0#64 := I5.sp
+    simp only [upd, BitVec.reduceEq, ite_true, ite_false] at h5pc h5tag h5ok h5ev
+    generalize ht : s5.mem.read64 (s0.sp + 0xfffffffffffffe20#64) = t at h5tag h5ok
+    have hcmn := cond_eq_cmn
+    m1_step; m1_step; m1_step; m1_step; m1_step; m1_step; m1_step; m1_step
+    split
+    · -- `Ok(v)`
+      sorry
+    · -- `Err(e)` (not a type error): copy it into the result and store the tag.
+      rename_i ht1
+      m1_step; m1_step; m1_step; m1_step; m1_step; m1_step; m1_step; m1_step; m1_step; m1_step
+      m1_step; m1_step; m1_step; m1_step; m1_step; m1_step; m1_step; m1_step; m1_step; m1_step
+      m1_step; m1_step; m1_step; m1_step; m1_step
+      refine Reaches.mono (to_tail P lo top p hp T hc hf s0 _ env ?_ rfl rfl hal0 ?_ htopS ?_ ?_) ?_
+      · -- Inv: the stores are to the staging slot and the result.
+        refine Inv.of_mem I5 (by simp [h5sp]) (by simp [upd]) (by simp [upd]) (by vsame_tac) rfl ?_
+        intro a ha
+        dsimp only
+        rcases ha.2.2 with hlow | hhigh
+        · have h300 := ha.1
+          simp (disch := first | far_tac h300 | far_tac hlow) only [write64_keep, Mem.write128_keep]
+        · simp (disch := far_tac hhigh) only [write64_keep, Mem.write128_keep]
+      · simpa [upd] using h5x21
+      · dsimp only; rw [Memory.read64_write64_same]; exact h5tag
+      · -- The evaluator survives the stores.
+        refine hfr.ev _ env s5.mem _ h5ev ?_
+        intro a ha
+        dsimp only
+        rcases ha with hin | ⟨hoff, hnk⟩
+        · simp (disch := far_tac hin) only [write64_keep, Mem.write128_keep]
+        · have hst : ∀ c n, (c - 0xfffffffffffffcb0#64).toNat + n ≤ 0x450 → n ≤ (a - (s0.sp + c)).toNat :=
+            fun c n hc => Mem.far_of (Q := fun x => ¬ OnStack lo top x) hoff fun i hi hn =>
+              hn (onStack_range lo top hlo htop c n hc i hi)
+          simp (disch := (apply hst; simp only [BitVec.reduceSub, BitVec.reduceToNat]; omega))
+            only [write64_keep, Mem.write128_keep]
+      · intro s' h'
+        exact h'
 
 theorem eval_spec (p : Program) (hp : p.Extends prog) (T : BitVec 64)
     (hc : Callees P lo top p T) (hfr : Frames P lo top) (hf : Facts P lo top)
