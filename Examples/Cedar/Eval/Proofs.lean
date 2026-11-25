@@ -107,12 +107,27 @@ theorem cond_ne_cmn (a b : BitVec 64) :
     conditionHolds 1#4 (addSub true false a b false).2 = (a + b != 0#64) := by
   simp [conditionHolds, addSub, addWithCarry, bne]
 
+/-- The callee-saved vector registers (low halves) are unchanged. -/
+def VSame (s s' : State) : Prop :=
+  ∀ r : BitVec 5, 8 ≤ r.toNat → r.toNat ≤ 15 → (s'.vreg r).setWidth 64 = (s.vreg r).setWidth 64
+
+theorem VSame.refl (s : State) : VSame s s := fun _ _ _ => rfl
+
 /-- `Inv` only depends on these fields. -/
 theorem Inv.congr {s0 s s' : State} (h : Inv s0 s) (hsp : s'.sp = s.sp) (hm : s'.mem = s.mem)
-    (h25 : s'.gpr 25 = s.gpr 25) (h26 : s'.gpr 26 = s.gpr 26) (hv : s'.vreg = s.vreg)
+    (h25 : s'.gpr 25 = s.gpr 25) (h26 : s'.gpr 26 = s.gpr 26) (hv : VSame s s')
     (hf : s'.fpcr = s.fpcr) : Inv s0 s' :=
-  ⟨hsp.trans h.sp, hm ▸ h.saved, h25.trans h.x25, h26.trans h.x26, hv ▸ h.v, hf.trans h.fpcr,
+  ⟨hsp.trans h.sp, hm ▸ h.saved, h25.trans h.x25, h26.trans h.x26,
+    fun r h1 h2 => (hv r h1 h2).trans (h.v r h1 h2), hf.trans h.fpcr,
     fun a h1 h2 => hm ▸ h.above a h1 h2⟩
+
+/-- Writing `v0`/`v1` keeps the callee-saved vector registers. -/
+theorem VSame.upd01 (s s' : State) (x y : BitVec 128) (h : s'.vreg = upd (upd s.vreg 0#5 x) 1#5 y) :
+    VSame s s' := by
+  intro r h1 h2
+  have h0 : r ≠ 0#5 := by bv_omega
+  have h1' : r ≠ 1#5 := by bv_omega
+  simp [h, upd, h0, h1']
 
 theorem toNat_add_sub_add (x c d : BitVec 64) (i : Nat) :
     (x + c + BitVec.ofNat 64 i - (x + d)).toNat = (c.toNat + i + (2 ^ 64 - d.toNat)) % 2 ^ 64 := by
@@ -270,9 +285,16 @@ theorem far_below {a B W : BitVec 64} {k n : Nat} (hin : (a - B).toNat < k)
     have := (W - B).isLt; omega
   rw [h1]; have := (a - B).isLt; omega
 
+/-- A byte at least `k` past `B` is at least `n` past a range `[W, W+n)` ending by `B + k`. -/
+theorem far_above {a B W : BitVec 64} {k n : Nat} (hin : k ≤ (a - B).toNat)
+    (hw : (W - B).toNat + n ≤ k) : n ≤ (a - W).toNat := by
+  rw [show a - W = (a - B) - (W - B) by grind,
+    BitVec.toNat_sub_of_le (x := a - B) (y := W - B) (by rw [BitVec.le_def]; omega)]
+  omega
+
 /-- `Inv` survives a change of memory that keeps the tracked bytes. -/
 theorem Inv.of_mem {s0 s s' : State} (h : Inv s0 s) (hsp : s'.sp = s.sp)
-    (h25 : s'.gpr 25 = s.gpr 25) (h26 : s'.gpr 26 = s.gpr 26) (hv : s'.vreg = s.vreg)
+    (h25 : s'.gpr 25 = s.gpr 25) (h26 : s'.gpr 26 = s.gpr 26) (hv : VSame s s')
     (hf : s'.fpcr = s.fpcr)
     (hm : ∀ a, Tracked (s0.sp + 0xfffffffffffffcb0#64) a → s'.mem a = s.mem a) : Inv s0 s' := by
   have hag : Memory.Agree s'.mem s.mem (s0.sp + 0xfffffffffffffcb0#64 + 0x300#64) 0x50 := by
@@ -293,7 +315,8 @@ theorem Inv.of_mem {s0 s s' : State} (h : Inv s0 s) (hsp : s'.sp = s.sp)
   have r6 := rd 48 (by decide); have r7 := rd 56 (by decide); have r8 := rd 64 (by decide)
   have r9 := rd 72 (by decide)
   simp only [BitVec.add_zero, BitVec.reduceAdd, BitVec.reduceOfNat] at r0 r1 r2 r3 r4 r5 r6 r7 r8 r9
-  refine ⟨hsp.trans h.sp, ?_, h25.trans h.x25, h26.trans h.x26, hv ▸ h.v, hf.trans h.fpcr, ?_⟩
+  refine ⟨hsp.trans h.sp, ?_, h25.trans h.x25, h26.trans h.x26,
+    fun r h1 h2 => (hv r h1 h2).trans (h.v r h1 h2), hf.trans h.fpcr, ?_⟩
   · unfold Saved; rw [r0, r1, r2, r3, r4, r5, r6, r7, r8, r9]; exact hsv
   · intro a h1 h2
     rw [← h.above a h1 h2]
@@ -333,7 +356,7 @@ theorem tail (p : Program) (hp : p.Extends prog) (T : BitVec 64) (hc : Callees P
     · rfl
     · simp [upd]
     · simp [upd]
-    · rfl
+    · exact VSame.refl _
     · rfl
     · out_tac
   have h1sp : s1.sp = s0.sp + 0xfffffffffffffcb0#64 := I1.sp
@@ -362,7 +385,7 @@ theorem tail (p : Program) (hp : p.Extends prog) (T : BitVec 64) (hc : Callees P
     · rfl
     · simp [upd]
     · simp [upd]
-    · rfl
+    · exact VSame.refl _
     · rfl
     · out_tac
   have h2sp : s2.sp = s0.sp + 0xfffffffffffffcb0#64 := I2.sp
@@ -390,7 +413,7 @@ theorem tail (p : Program) (hp : p.Extends prog) (T : BitVec 64) (hc : Callees P
     · rfl
     · simp [upd]
     · simp [upd]
-    · rfl
+    · exact VSame.refl _
     · rfl
     · out_tac
   have h3sp : s3.sp = s0.sp + 0xfffffffffffffcb0#64 := I3.sp
@@ -423,7 +446,7 @@ theorem tail (p : Program) (hp : p.Extends prog) (T : BitVec 64) (hc : Callees P
       · rfl
       · simp [upd]
       · simp [upd]
-      · rfl
+      · exact VSame.refl _
       · rfl
       · out_tac
     have h4t : s4.mem.read64 (s0.sp + 8#64) = s.mem.read64 (s0.sp + 8#64) :=
@@ -445,14 +468,14 @@ theorem tail (p : Program) (hp : p.Extends prog) (T : BitVec 64) (hc : Callees P
       · rfl
       · simp [upd]
       · simp [upd]
-      · rfl
+      · exact VSame.refl _
       · rfl
       · out_tac
     have h4t : s4.mem.read64 (s0.sp + 8#64) = s.mem.read64 (s0.sp + 8#64) :=
       (Keeps.read64 top h4k _ (by keep_tac htopS)).trans h3t
     simp only [upd, BitVec.reduceEq, ite_true, ite_false] at h4pc
     m1_step
-    refine epilogue p hp s0 _ (Inv.congr I4 rfl rfl rfl rfl rfl rfl) rfl rfl hal0 ?_
+    refine epilogue p hp s0 _ (Inv.congr I4 rfl rfl rfl rfl (VSame.refl _) rfl) rfl rfl hal0 ?_
     show 7 ≤ (s4.mem.read64 (s0.sp + 8#64)).toNat
     rw [h4t]; exact htag
 
@@ -528,7 +551,28 @@ theorem mid (p : Program) (hp : p.Extends prog) (T : BitVec 64) (hc : Callees P 
       rw [write64_keep _ (hst _ 8 ?_), write64_keep _ (hst _ 8 ?_),
         Mem.write128_keep _ (hst _ 16 ?_), Mem.write128_keep _ (hst _ 16 ?_), write64_keep _ hA8]
       all_goals (simp only [BitVec.reduceSub, BitVec.reduceToNat]; omega)
-  · sorry
+  · rintro s5 ⟨h5pc, h5st, h5cs, h5k, -, h5tag, h5ok, h5ev⟩
+    have I5 : Inv s0 s5 := by
+      refine Inv.of_call top (Inv.of_mem h ?_ ?_ ?_ ?_ ?_ ?_) h5cs h5k htopS ?_
+      · simp [hsp]
+      · simp [upd]
+      · simp [upd]
+      · exact VSame.upd01 _ _ _ _ rfl
+      · rfl
+      · -- The KEYS-cell and slot-map stores keep the tracked bytes.
+        intro a ha
+        have hon := onStack_of_tracked lo top hlo htop ha
+        have hA8 : 8 ≤ (a - A).toNat :=
+          Nat.le_trans (show 8 ≤ 0x18 by decide) (Mem.far_of (Q := OnStack lo top) hon hAoff)
+        have hst : ∀ c n, (s0.sp + c - (s0.sp + 0xfffffffffffffcb0#64)).toNat + n ≤ 0x300 →
+            n ≤ (a - (s0.sp + c)).toNat := fun c n hw => far_above ha.1 hw
+        dsimp only
+        rw [write64_keep _ (hst _ 8 ?_), write64_keep _ (hst _ 8 ?_),
+          Mem.write128_keep _ (hst _ 16 ?_), Mem.write128_keep _ (hst _ 16 ?_), write64_keep _ hA8]
+        all_goals (rw [add_sub_add_l]; simp only [BitVec.reduceSub, BitVec.reduceToNat]; omega)
+      · out_tac
+    trace_state
+    sorry
 
 theorem eval_spec (p : Program) (hp : p.Extends prog) (T : BitVec 64)
     (hc : Callees P lo top p T) (hfr : Frames P lo top) (hf : Facts P lo top)
