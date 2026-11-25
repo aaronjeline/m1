@@ -39,7 +39,8 @@ for line in sh('llvm-nm-18', '-n', DYLIB).splitlines():
     if len(parts) == 3 and parts[1] in 'Tt':
         syms.append((parts[2], int(parts[0], 16)))
 if SUFFIX.startswith('0x'):
-    ((name, start),) = [(n, a) for n, a in syms if a == int(SUFFIX, 16)]
+    # Several symbols may share an address (aliases): take the first.
+    (name, start) = [(n, a) for n, a in syms if a == int(SUFFIX, 16)][0]
 else:
     ((name, start),) = [(n, a) for n, a in syms if n.endswith(SUFFIX)]
 end = min(a for _, a in syms if a > start)
@@ -51,6 +52,15 @@ blob = open(DYLIB, 'rb').read()
 words = struct.unpack(f'<{(end - start) // 4}I',
                       blob[text_off + start - text_addr:text_off + end - text_addr])
 
+# Stub addresses of the externals (from the panic inventory), for calls the
+# disassembler labels `<dyld_stub_binder+0x...>`.
+STUBS = {}
+_inv = os.path.join(HERE, '../../Examples/Cedar/NoPanic/inventory.json')
+if os.path.exists(_inv):
+    import json
+    for _n, _e in json.load(open(_inv))['externals'].items():
+        STUBS[int(_e['addr'], 16)] = _n
+
 dis, callees = {}, {}
 for line in sh('llvm-objdump-18', '-d', '--no-show-raw-insn', '--mattr=+v8.5a,+lse,+rcpc,+rcpc-immo',
                f'--start-address={start}', f'--stop-address={end}', DYLIB).splitlines():
@@ -59,9 +69,13 @@ for line in sh('llvm-objdump-18', '-d', '--no-show-raw-insn', '--mattr=+v8.5a,+l
         continue
     d = re.sub(r'\s+', ' ', m.group(2)).strip()
     # Calls (`bl`) and tail calls (`b` to another symbol's start).
-    c = re.match(r'bl? 0x([0-9a-f]+) <([^>+]+)>', d)
+    c = re.match(r'bl? 0x([0-9a-f]+) <([^>]+)>', d)
     if c and not start <= int(c.group(1), 16) < end:
-        callees.setdefault(int(c.group(1), 16), c.group(2))
+        if '+' not in c.group(2):
+            callees.setdefault(int(c.group(1), 16), c.group(2))
+        elif int(c.group(1), 16) in STUBS:
+            # A call through a stub (`<dyld_stub_binder+0x...>`): an external.
+            callees.setdefault(int(c.group(1), 16), STUBS[int(c.group(1), 16)])
     # Short names in comments: the last identifier of a mangled path.
     d = re.sub(r'<_*R\w*?\d+(\w+?)(?:\.llvm\.\d+)?(\+0x[0-9a-f]+)?>',
                lambda k: f'<{k.group(1)}{k.group(2) or ""}>', d)
@@ -98,6 +112,9 @@ def text : List (BitVec 32) := [
 abbrev prog : Program := Program.ofList textBase text
 
 def sym_fn : BitVec 64 := 0x{start:x}#64
+
+/-- The addresses of the function's instructions. -/
+def pcs : List (BitVec 64) := [{", ".join(f"0x{start + 4 * i:x}#64" for i in range(len(words)))}]
 
 /-! Direct-call targets (not part of `prog`). -/
 {chr(10).join(ext)}

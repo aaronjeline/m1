@@ -89,6 +89,9 @@ structure MemFacts (H : Heap) (lo top : BitVec 64) : Prop where
   offTlv : ∀ m a n al, H.Live m a n al → Memory.Disjoint a n.toNat tlvDesc 8
   /-- The TLV descriptor is off the stack. -/
   tlvOffStack : ∀ i < 8, ¬ OnStack lo top (tlvDesc + BitVec.ofNat 64 i)
+  /-- Distinct live blocks do not overlap. -/
+  disjoint : ∀ m a n al b n' al', H.Live m a n al → H.Live m b n' al' → a ≠ b →
+    Memory.Disjoint a n.toNat b n'.toNat
 
 /-- **Assumed**: the contracts of the allocator shims. An allocation may fail
 (return null) only if `Fails` holds: `Allocator H True p top` is the actual
@@ -120,5 +123,93 @@ structure Allocator (H : Heap) (Fails : Prop) (p : Program) (top : BitVec 64) : 
         (∀ i, i < (s.gpr 1).toNat → i < (s.gpr 3).toNat →
           s'.mem (s'.gpr 0 + BitVec.ofNat 64 i) = s.mem (s.gpr 0 + BitVec.ofNat 64 i)) ∧
         HeapKept H (· ≠ s.gpr 0) s s'))
+
+
+/-!
+# Assumed contracts of the C library functions
+
+`memcpy`, `memmove`, `memset` and `memcmp` (libSystem, called through stubs)
+are not proved either: their contracts (`LibC`) are hypotheses, in `NP` form.
+They change no memory other than their destination and the free part of the
+stack below their entry `SP` (their own frame); the destination must be
+writable: in the callers' frames (above `SP`) or inside a live heap block.
+`memcpy`'s ranges must not overlap. Lengths are byte counts (`x2`); the contracts are stated per length `len`
+(the `Keeps` output size of `NPContract` is a constant).
+
+The `pthread` functions used to find the stack's bounds (`stacker`) return
+values and change nothing but their own frame. `pthread_self` returns the
+current thread's handle `Self`; the others need it as argument.
+-/
+
+/-- `_memcpy` stub -/
+def libcMemcpy : BitVec 64 := 0x355b2c#64
+/-- `_memcmp` stub -/
+def libcMemcmp : BitVec 64 := 0x355b38#64
+/-- `_memmove` stub -/
+def libcMemmove : BitVec 64 := 0x355b44#64
+/-- `_memset` stub -/
+def libcMemset : BitVec 64 := 0x355b50#64
+/-- `_pthread_get_stacksize_np` stub -/
+def libcStacksize : BitVec 64 := 0x355b5c#64
+/-- `_pthread_self` stub -/
+def libcSelf : BitVec 64 := 0x355b68#64
+/-- `_pthread_get_stackaddr_np` stub -/
+def libcStackaddr : BitVec 64 := 0x355b74#64
+
+/-- `x` is in the free part of the stack, below `sp`. -/
+def FreeStack (lo sp x : BitVec 64) : Prop := (x - lo).toNat < (sp - lo).toNat
+
+/-- `n` bytes at `dst` may be written by a callee entered with `SP = sp`: in the
+callers' frames, or inside a live heap block. -/
+def Writable (H : Heap) (top sp : BitVec 64) (m : Memory) (dst : BitVec 64) (n : Nat) : Prop :=
+  n = 0 ∨ (dst - sp).toNat + n ≤ (top - sp).toNat ∨
+    ∃ b nb al, H.Live m b nb al ∧ (dst - b).toNat + n ≤ nb.toNat
+
+/-- From `s` to `s'`, no byte changed except the `n` bytes at `dst` and the
+free part of the stack below `s.sp`. -/
+def OnlyWrites (lo : BitVec 64) (dst : BitVec 64) (n : Nat) (s s' : State) : Prop :=
+  ∀ x, ¬ FreeStack lo s.sp x → n ≤ (x - dst).toNat → s'.mem x = s.mem x
+
+/-- **Assumed**: the contracts of `memcpy`, `memmove`, `memset`, `memcmp` and
+the `pthread` stack queries (`Self`: the current thread's handle). -/
+structure LibC (H : Heap) (p : Program) (lo top : BitVec 64) (Self : BitVec 64) : Prop where
+  /-- `memcpy(dst = x0, src = x1, n = x2) -> dst`: non-overlapping ranges. -/
+  memcpy : ∀ len : Nat, NP p top libcMemcpy
+    (fun s => (s.gpr 2).toNat = len ∧ Writable H top s.sp s.mem (s.gpr 0) len ∧
+      (len = 0 ∨ Memory.Disjoint (s.gpr 0) len (s.gpr 1) len))
+    (fun s => s.gpr 0) len
+    (fun s s' => s'.gpr 0 = s.gpr 0 ∧ OnlyWrites lo (s.gpr 0) (s.gpr 2).toNat s s' ∧
+      ∀ i < (s.gpr 2).toNat, s'.mem (s.gpr 0 + BitVec.ofNat 64 i) = s.mem (s.gpr 1 + BitVec.ofNat 64 i))
+  /-- `memmove(dst = x0, src = x1, n = x2) -> dst`: the ranges may overlap. -/
+  memmove : ∀ len : Nat, NP p top libcMemmove
+    (fun s => (s.gpr 2).toNat = len ∧ Writable H top s.sp s.mem (s.gpr 0) len)
+    (fun s => s.gpr 0) len
+    (fun s s' => s'.gpr 0 = s.gpr 0 ∧ OnlyWrites lo (s.gpr 0) (s.gpr 2).toNat s s' ∧
+      ∀ i < (s.gpr 2).toNat, s'.mem (s.gpr 0 + BitVec.ofNat 64 i) = s.mem (s.gpr 1 + BitVec.ofNat 64 i))
+  /-- `memset(dst = x0, c = w1, n = x2) -> dst`. -/
+  memset : ∀ len : Nat, NP p top libcMemset
+    (fun s => (s.gpr 2).toNat = len ∧ Writable H top s.sp s.mem (s.gpr 0) len)
+    (fun s => s.gpr 0) len
+    (fun s s' => s'.gpr 0 = s.gpr 0 ∧ OnlyWrites lo (s.gpr 0) (s.gpr 2).toNat s s' ∧
+      ∀ i < (s.gpr 2).toNat, s'.mem (s.gpr 0 + BitVec.ofNat 64 i) = (s.gpr 1).setWidth 8)
+  /-- `memcmp(a = x0, b = x1, n = x2) -> w0`: 0 iff the ranges are equal; else
+  negative iff at the first difference `a`'s byte is smaller (unsigned). -/
+  memcmp : NP p top libcMemcmp (fun _ => True) (fun _ => 0#64) 0
+    (fun s s' => OnlyWrites lo 0#64 0 s s' ∧
+      ((s'.gpr 0).setWidth 32 = 0#32 ↔
+        ∀ i < (s.gpr 2).toNat, s.mem (s.gpr 0 + BitVec.ofNat 64 i) = s.mem (s.gpr 1 + BitVec.ofNat 64 i)) ∧
+      ∀ j < (s.gpr 2).toNat,
+        (∀ i < j, s.mem (s.gpr 0 + BitVec.ofNat 64 i) = s.mem (s.gpr 1 + BitVec.ofNat 64 i)) →
+        s.mem (s.gpr 0 + BitVec.ofNat 64 j) ≠ s.mem (s.gpr 1 + BitVec.ofNat 64 j) →
+        (((s'.gpr 0).setWidth 32).slt 0#32 ↔ s.mem (s.gpr 0 + BitVec.ofNat 64 j) < s.mem (s.gpr 1 + BitVec.ofNat 64 j)))
+  /-- `pthread_self() -> Self`. -/
+  self : NP p top libcSelf (fun _ => True) (fun _ => 0#64) 0
+    (fun s s' => s'.gpr 0 = Self ∧ OnlyWrites lo 0#64 0 s s')
+  /-- `pthread_get_stackaddr_np(Self) -> x0` (some value). -/
+  stackaddr : NP p top libcStackaddr (fun s => s.gpr 0 = Self) (fun _ => 0#64) 0
+    (fun s s' => OnlyWrites lo 0#64 0 s s')
+  /-- `pthread_get_stacksize_np(Self) -> x0` (some value). -/
+  stacksize : NP p top libcStacksize (fun s => s.gpr 0 = Self) (fun _ => 0#64) 0
+    (fun s s' => OnlyWrites lo 0#64 0 s s')
 
 end Examples.Cedar.NoPanic
