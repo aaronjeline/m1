@@ -186,6 +186,18 @@ theorem sub_udiv_mul_eq_umod {n : Nat} (a b : BitVec n) : a - a / b * b = a % b 
     Nat.mod_eq_of_lt (by omega)]
   omega
 
+/-! Register offsets (`[xn, xm{, lsl #s}]`, `[xn, wm, uxtw/sxtw]`, `add .., uxtx`). -/
+@[m1_sym] theorem extendReg_uxtx (x : BitVec 64) (sh : Nat) : extendReg (n := 64) x 3#3 sh = x <<< sh := by
+  simp [extendReg]
+@[m1_sym] theorem extendReg_sxtx (x : BitVec 64) (sh : Nat) : extendReg (n := 64) x 7#3 sh = x <<< sh := by
+  simp [extendReg]
+@[m1_sym] theorem extendReg_uxtw (x : BitVec 64) (sh : Nat) :
+    extendReg (n := 64) x 2#3 sh = (x.setWidth 32).setWidth 64 <<< sh := by
+  simp [extendReg]
+@[m1_sym] theorem extendReg_sxtw (x : BitVec 64) (sh : Nat) :
+    extendReg (n := 64) x 6#3 sh = (x.setWidth 32).signExtend 64 <<< sh := by
+  simp [extendReg]
+
 /-- Adding a multiple of 16 preserves 16-byte alignment (stack pointer updates). -/
 theorem add_and15 (x c : BitVec 64) (h : c &&& 15#64 = 0#64) : (x + c) &&& 15#64 = x &&& 15#64 := by
   bv_decide
@@ -233,7 +245,7 @@ attribute [m1_sym]
   BitVec.and_zero BitVec.xor_zero BitVec.zero_xor Bool.bne_false
   beq_iff_eq bne_iff_ne BitVec.shiftLeft_zero BitVec.ushiftRight_zero
   BitVec.setWidth_eq Bool.not_eq_true' aligned
-  atomicAligned State.x State.xsp State.setX
+  atomicAligned atomicCompute State.x State.xsp State.setX
   State.setXSP State.setV State.setFlags State.setPC
   State.nextPC State.setMem State.fault upd
   trunc sized logicWrite logicCompute
@@ -270,15 +282,38 @@ macro "m1_simp_step" : tactic =>
   `(tactic| simp only
       [m1_sym, *, Nat.reduceLeDiff, Nat.reduceBEq, Nat.reduceBNe, decide_eq_true_eq, BitVec.reduceEq, BitVec.reduceBEq, BitVec.reduceBNe, BitVec.reduceNe, Sym.reduceDecode, Sym.reduceFetch, BitVec.reduceAdd, BitVec.reduceSub, BitVec.reduceAnd, BitVec.reduceOfNat, BitVec.reduceHShiftLeft, BitVec.reduceNot, BitVec.reduceToNat, BitVec.reduceOr, BitVec.reduceXOr, BitVec.reduceMul, BitVec.reduceHShiftRight, BitVec.reduceSetWidth, BitVec.reduceZeroExtend, BitVec.reduceSignExtend, BitVec.reduceExtractLsb', BitVec.reduceAllOnes, BitVec.reduceAppend, BitVec.reduceGetLsb, BitVec.reduceULT, BitVec.reduceULE, BitVec.reduceLT, BitVec.reduceLE, BitVec.reduceRotateRight, BitVec.reduceSShiftRight, BitVec.reduceUShiftRight, BitVec.reduceShiftLeft, Nat.reduceAdd, Nat.reduceSub, Nat.reduceMul, Nat.reducePow, Nat.reduceMod, Nat.reduceDiv, Nat.reduceLT, Nat.reduceEqDiff, reduceIte, reduceDIte, reduceCtorEq, ↓reduceIte])
 
+open Lean Elab Tactic in
+/-- Rewrite `step p s` to `step q s` using a hypothesis `p.Extends q` for
+which `q` has code at the current PC: every such hypothesis is tried, so a
+context may hold several (e.g. the function's own code and a callee's).
+Does nothing if none applies. -/
+elab "m1_rw_extends" : tactic => withMainContext do
+  for d in (← getLCtx) do
+    if d.isImplementationDetail then continue
+    let ty ← instantiateMVars d.type
+    if ty.isAppOfArity ``Program.Extends 2 then
+      let saved ← saveState
+      try
+        let h ← Term.exprToSyntax d.toExpr
+        evalTactic (← `(tactic| rw [step_of_extends $h _ (by m1_simp_step)]))
+        return
+      catch _ => restoreState saved
+
 /-- Symbolically execute one instruction. The goal is `Reaches p s Q`, where
 either `p` is a concrete program (`Program.ofList ...`) or there is a
 hypothesis `p.Extends q` with `q` concrete; in the latter case the instruction
-is fetched from `q` (which must have code at the current PC). Uses the
+is fetched from `q` (which must have code at the current PC; with several such
+hypotheses, the first one that has code there). Uses the
 hypotheses in context (e.g. `s.pc = ...`, `s.status = .running`). -/
 macro "m1_step" : tactic =>
   `(tactic| (apply Reaches.step; try simp only [BitVec.ofNat_eq_ofNat] at *
-             try (rw [step_of_extends (by assumption) _ (by m1_simp_step)])
+             m1_rw_extends
              m1_simp_step))
+
+/-- Discharge `¬ B s.pc` for a literal PC: `B` unfolds to a disjunction of
+equations between literals, each of which reduces to `False`. -/
+macro "m1_safe_bad" : tactic =>
+  `(tactic| (m1_simp_step <;> simp only [or_false, false_or, or_self, not_false_eq_true]))
 
 /-- Symbolically execute one instruction on a goal `SafeN p B n s Q` (see
 `M1.Safety`), keeping the index `n`. The side conditions (the state is running
@@ -288,9 +323,9 @@ reduce to a decidable condition on a literal PC (e.g. a hypothesis
 macro "m1_safe_step" : tactic =>
   `(tactic| (refine SafeN.step' ?_ ?_ ?_
              m1_simp_step
-             m1_simp_step
+             m1_safe_bad
              try simp only [BitVec.ofNat_eq_ofNat] at *
-             try (rw [step_of_extends (by assumption) _ (by m1_simp_step)])
+             m1_rw_extends
              m1_simp_step))
 
 /-- `m1_safe_step` on a goal `SafeN p B (n + 1) s Q`, using up one unit of the
@@ -298,9 +333,9 @@ index (for the first instruction of a function proved with `SafeFun.fix`). -/
 macro "m1_safe_step1" : tactic =>
   `(tactic| (refine SafeN.step ?_ ?_ ?_
              m1_simp_step
-             m1_simp_step
+             m1_safe_bad
              try simp only [BitVec.ofNat_eq_ofNat] at *
-             try (rw [step_of_extends (by assumption) _ (by m1_simp_step)])
+             m1_rw_extends
              m1_simp_step))
 
 end M1

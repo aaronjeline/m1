@@ -3,12 +3,15 @@
 
     targets/cedar-check/extract-fn.py SYMBOL_SUFFIX MODULE OUT.lean [dylib]
 
+SYMBOL_SUFFIX may also be the function's address (`0x...`), for symbols whose
+names are not unique (outlined functions).
+
 e.g. extract-fn.py 12cedar_policy3api15eval_expression Examples.Cedar.Eval.Code \
          Examples/Cedar/Eval/Code.lean
 
 The module defines `prog` (exactly the function's instruction words, from its
 symbol to the next one), `sym_fn` (its entry), and one `ext_<i>` per distinct
-direct-call target, with the callee's (mangled) name in its doc comment. The
+direct-call or tail-call target, with the callee's (mangled) name in its doc comment. The
 callees' code is not part of `prog`; proofs take their contracts as
 hypotheses about a program extending `prog` (see `Program.Extends`).
 
@@ -29,14 +32,17 @@ def sh(*cmd):
     return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
 
 
-syms = {}
+# (name, address) pairs: names are not unique (e.g. `_OUTLINED_FUNCTION_0`).
+syms = []
 for line in sh('llvm-nm-18', '-n', DYLIB).splitlines():
     parts = line.split()
     if len(parts) == 3 and parts[1] in 'Tt':
-        syms[parts[2]] = int(parts[0], 16)
-(name,) = [n for n in syms if n.endswith(SUFFIX)]
-start = syms[name]
-end = min(a for a in syms.values() if a > start)
+        syms.append((parts[2], int(parts[0], 16)))
+if SUFFIX.startswith('0x'):
+    ((name, start),) = [(n, a) for n, a in syms if a == int(SUFFIX, 16)]
+else:
+    ((name, start),) = [(n, a) for n, a in syms if n.endswith(SUFFIX)]
+end = min(a for _, a in syms if a > start)
 
 lc = sh('llvm-otool-18', '-l', DYLIB)
 m = re.search(r'sectname __text\n\s*segname __TEXT\n\s*addr 0x([0-9a-f]+)\n\s*size 0x[0-9a-f]+\n\s*offset (\d+)', lc)
@@ -52,8 +58,9 @@ for line in sh('llvm-objdump-18', '-d', '--no-show-raw-insn', '--mattr=+v8.5a,+l
     if not m:
         continue
     d = re.sub(r'\s+', ' ', m.group(2)).strip()
-    c = re.match(r'bl 0x([0-9a-f]+) <([^>+]+)>', d)
-    if c:
+    # Calls (`bl`) and tail calls (`b` to another symbol's start).
+    c = re.match(r'bl? 0x([0-9a-f]+) <([^>+]+)>', d)
+    if c and not start <= int(c.group(1), 16) < end:
         callees.setdefault(int(c.group(1), 16), c.group(2))
     # Short names in comments: the last identifier of a mangled path.
     d = re.sub(r'<_*R\w*?\d+(\w+?)(?:\.llvm\.\d+)?(\+0x[0-9a-f]+)?>',

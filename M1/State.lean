@@ -79,6 +79,11 @@ structure State where
 @[simp] theorem upd_other {α β} [DecidableEq α] (f : α → β) (a x : α) (b : β) (h : x ≠ a) :
     upd f a b x = f x := by simp [upd, h]
 
+/-- A second write to the same point overrides the first. -/
+@[simp] theorem upd_upd_same {α β} [DecidableEq α] (f : α → β) (a : α) (b c : β) :
+    upd (upd f a b) a c = upd f a c := by
+  funext x; simp only [upd]; split <;> rfl
+
 /-! ### Memory: little-endian multi-byte access -/
 
 namespace Memory
