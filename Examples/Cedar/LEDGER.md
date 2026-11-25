@@ -9,24 +9,39 @@ Code reachable by direct calls from `typechecks_in` and `eval_expression`
 (not counting indirect calls): about 961 functions, 158,000 instructions,
 5,180 loops, 42 directly recursive functions, plus libSystem's allocator.
 
-## Proved (machine code, `lake build`)
+Current top theorem: `Examples.Cedar.violation_unreachable'`
+(`Examples/Cedar/Main.lean`). Checked by `lake build`; axioms: Lean's
+standard three plus `bv_decide` certificates; no `sorry`.
 
-| Function | Instructions | File |
+## Proved (machine code)
+
+| Function | Instructions | Where |
 | --- | --- | --- |
-| `verdict` | 78 | `Examples/Cedar/Proofs.lean` (`verdict_spec`, `violation_unreachable`) |
+| `cedar_check::verdict` (incl. the assertion) | 78 (+2) | `Main.lean` (`verdict_spec'`) |
+| `cedar_policy::eval_expression` | 114 | `Eval/Proofs.lean` (`eval_spec`) |
 
-## In progress
+## Assumed (hypotheses of `violation_unreachable'`)
 
-| Function | Instructions | Status |
+| Contract | Function | Status / notes |
 | --- | --- | --- |
-| `eval_expression` | 114 | contracts written (`Eval/Contracts.lean`); proof `Eval/Proofs.lean` in progress |
+| **`InterpretSpec`** | `Evaluator::interpret` (81 instr., calls `partial_interpret`, the recursive evaluator) | **type soundness**: on a well-typed expression the result is not `Err(TypeError)` |
+| `TypechecksSpec'` | `typechecks_in` (the validator, ~56,000 instr. reachable) | returns `true` only for well-typed expressions |
+| `Callees.allAvailable` | `Extensions::all_available` | ABI and framing |
+| `Callees.clone` | `Request::clone` | produces a clone of the request |
+| `Callees.new` | `Evaluator::new` (66 instr.) | builds an evaluator for the environment |
+| `Callees.thunk` | dyld's TLV thunk (libdyld) | returns the thread's `KEYS` cell, off the stack |
+| `Callees.randomKeys` | `std::sys::random::hashmap_random_keys` | ABI and framing |
+| `Callees.fromValue` | `EvalResult::from(Value)` | ABI and framing |
+| `Callees.drop*` | drop glue for `EntityUIDEntry`, `Expr`, `Value` | ABI and framing |
+| `Frames`, `Facts` | — | footprints of the abstract objects; an evaluator's fields; moving a `Value` |
 
-## Assumed (hypotheses of the current top theorem)
+## Next
 
-| Contract | What it says | Notes |
-| --- | --- | --- |
-| `EvalSpec` (`eval_expression`) | on a well-typed expression, the result is not `Err(TypeError)` | to be replaced by `InterpretSpec` once `eval_expression` is proved |
-| `TypechecksSpec` (`typechecks_in`) | returns `true` only for well-typed expressions | the validator: ~56,000 instructions reachable |
-
-Under `InterpretSpec`, the soundness assumption sits on `Evaluator::interpret`
-(81 instructions, calls `partial_interpret`, the recursive evaluator).
+1. `Evaluator::interpret` from a contract on `partial_interpret` (moves
+   the assumption into the recursive evaluator).
+2. A Lean model of Cedar values, types and expressions, and a relation
+   between it and the byte layouts of `Expr`, `Value`, `Type`, so that
+   `WT` and the evaluator's contracts can say *what* they compute.
+3. `partial_interpret` by induction on the expression, case by case, from
+   contracts on its leaf operations.
+4. The validator (`typechecks_in`): the largest part.

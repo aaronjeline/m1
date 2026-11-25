@@ -4,3 +4,4 @@ import Examples.Calls.Proofs
 import Examples.FP.Proofs
 import Examples.Ext.Proofs
 import Examples.Cedar.Proofs
+import Examples.Cedar.Main
