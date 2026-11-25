@@ -11,6 +11,7 @@
 -/
 import Lean
 import M1.Spec
+import M1.Safety
 import M1.MemoryLemmas
 import M1.FPLemmas
 import M1.SimpAttr
@@ -276,6 +277,29 @@ is fetched from `q` (which must have code at the current PC). Uses the
 hypotheses in context (e.g. `s.pc = ...`, `s.status = .running`). -/
 macro "m1_step" : tactic =>
   `(tactic| (apply Reaches.step; try simp only [BitVec.ofNat_eq_ofNat] at *
+             try (rw [step_of_extends (by assumption) _ (by m1_simp_step)])
+             m1_simp_step))
+
+/-- Symbolically execute one instruction on a goal `SafeN p B n s Q` (see
+`M1.Safety`), keeping the index `n`. The side conditions (the state is running
+and its PC is not in `B`) are discharged with the same simp set, so `B` must
+reduce to a decidable condition on a literal PC (e.g. a hypothesis
+`hB : B = fun a => ...` in context, or a definition tagged `m1_sym`). -/
+macro "m1_safe_step" : tactic =>
+  `(tactic| (refine SafeN.step' ?_ ?_ ?_
+             m1_simp_step
+             m1_simp_step
+             try simp only [BitVec.ofNat_eq_ofNat] at *
+             try (rw [step_of_extends (by assumption) _ (by m1_simp_step)])
+             m1_simp_step))
+
+/-- `m1_safe_step` on a goal `SafeN p B (n + 1) s Q`, using up one unit of the
+index (for the first instruction of a function proved with `SafeFun.fix`). -/
+macro "m1_safe_step1" : tactic =>
+  `(tactic| (refine SafeN.step ?_ ?_ ?_
+             m1_simp_step
+             m1_simp_step
+             try simp only [BitVec.ofNat_eq_ofNat] at *
              try (rw [step_of_extends (by assumption) _ (by m1_simp_step)])
              m1_simp_step))
 

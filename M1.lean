@@ -8,6 +8,7 @@ import M1.Decode
 import M1.Exec
 import M1.Step
 import M1.Spec
+import M1.Safety
 import M1.MemoryLemmas
 import M1.Crypto
 import M1.FP
