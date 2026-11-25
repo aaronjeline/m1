@@ -154,6 +154,16 @@ def ldSt (w : BitVec 32) : Option Instr :=
     | true, false => some (.ldstOrdered bytes load rn rt)
     | true, true => if fld w 10 5 == 31 then some (.cas bytes rs rn rt) else none
     | false, true => none
+  else if n &&& 0x3F200C00 == 0x19000000 then
+    -- LDAPR/STLR (unscaled immediate), FEAT_LRCPC2:
+    -- size 011001 opc 0 imm9 00 Rn Rt. The (size, opc) table is the one of
+    -- the single-register class, except that size = 3, opc = 2 (PRFM there)
+    -- is unallocated.
+    let opc := fld w 22 2
+    if size == 3 && opc == 2 then none else
+    match intMemOp size opc with
+    | none => none
+    | some op => some (.ldstOrderedImm (2 ^ size) op (simm w 12 9 0) rn rt)
   else if n &&& 0x3B000000 == 0x18000000 then
     -- Load register (literal).
     let off := simm w 5 19 2

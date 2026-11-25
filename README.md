@@ -33,7 +33,8 @@ next PC are compared.
 | `tools/coverage.py` | Reports how much of a binary's code the decoder covers. |
 | `tools/cosim/` | Single-instruction hardware co-simulation harness. |
 | `tools/funsim/` | Whole-function co-simulation harness. |
-| `Examples/` | Verified clang `-O2` output. |
+| `Examples/` | Verified clang `-O2` output, and the Cedar target's assertion (`Examples/Cedar`). |
+| `targets/cedar-check/` | Rust verification target: Cedar parse, typecheck, evaluate, with a type-soundness assertion. |
 
 ## What is modelled
 
@@ -52,7 +53,9 @@ immediate), `MRS`/`MSR` of `NZCV`, `FPCR` and `FPSR`.
 pre-/post-index, register offset with extend/shift, literal), pairs, sign- and
 zero-extending loads, `PRFM` (no-op), exclusives (`LDXR`/`STXR`, acquire/release
 forms), `LDAR`/`STLR` and friends, LSE atomics (`LDADD`, `LDCLR`, `LDEOR`,
-`LDSET`, `LD{S,U}{MAX,MIN}`, `SWP`, `CAS`).
+`LDSET`, `LD{S,U}{MAX,MIN}`, `SWP`, `CAS`), and the FEAT_LRCPC2 unscaled
+`LDAPUR*`/`STLUR*` (**not yet validated on hardware**: see
+[VALIDATION.md](VALIDATION.md)).
 
 **SIMD:** FP/SIMD register loads and stores (all sizes and modes), `LD1`–`LD4`
 and `ST1`–`ST4` (multiple structures and single lane), `LD1R`–`LD4R`,
@@ -134,7 +137,8 @@ These are the places where the model makes a choice that a proof relies on.
     never checked;
   * exclusives, load-acquire/store-release, LSE atomics and `CAS` fault
     (`.dataAlignment`) exactly when the access crosses a 16-byte boundary
-    (FEAT_LSE2);
+    (FEAT_LSE2). `LDAPUR*`/`STLUR*` are assumed to follow the same rule on
+    base + offset; that has not been measured yet ([VALIDATION.md](VALIDATION.md));
   * a branch to a non-multiple of 4 faults (`.pcAlignment`).
 * **The exclusive monitor is deterministic:** `STXR` succeeds exactly when the
   monitor holds the same address and size from a preceding `LDXR`. Real
@@ -232,7 +236,12 @@ These are the places where the model makes a choice that a proof relies on.
    a saturating `double` to `long` conversion) and `Examples/Ext/Proofs.lean`
    (`rand() % 6 + 1` against libc's `rand` contract, including clang's
    multiply-high replacement of `% 6`, and preservation of callee-saved
-   registers).
+   registers). `Examples/Cedar/Proofs.lean` verifies rustc output: the
+   type-soundness assertion in `targets/cedar-check` is unreachable, given
+   contracts for Cedar's typechecker and evaluator (see that file and
+   `targets/cedar-check/README.md`). Long extracted programs work with
+   `m1_step`: `reduceFetch` sees through the `have` chunks Lean uses to
+   elaborate long list literals.
 
    Tips:
    * Always step from a concrete PC. Stepping from a symbolic PC (for example
@@ -265,6 +274,9 @@ on an M1 Max with **zero mismatches**. Every issue the harness found during
 development was fixed in the model: LSE2 alignment, SP alignment checking,
 `x18` clobbering, decoding of unprivileged `PRFM`, the field layout of SIMD
 structure loads, and `FCMP #0.0` ignoring its `Rm` field.
+
+Instructions added since the last hardware run are listed, with what to
+check, in [VALIDATION.md](VALIDATION.md).
 
 Run it again after changing the model (optionally restricted to some
 generators, e.g. `gen_fp,gen_fpvec,gen_fpmore,gen_crypto`):

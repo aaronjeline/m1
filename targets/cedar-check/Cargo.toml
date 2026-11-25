@@ -1,0 +1,22 @@
+[package]
+name = "cedar-check"
+version = "0.1.0"
+edition = "2021"
+description = "Verification target: parse, typecheck and evaluate a Cedar expression; a runtime type error after a successful typecheck is unreachable."
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Pinned to the Cedar source this target was written against.
+cedar-policy = { git = "https://github.com/cedar-policy/cedar", rev = "165f5ed71f084db5bc9482f560c91aeccd1439ca" }
+cedar-policy-core = { git = "https://github.com/cedar-policy/cedar", rev = "165f5ed71f084db5bc9482f560c91aeccd1439ca" }
+
+[profile.release]
+# No unwinding: a panic is a crash. Keeps the panic/unwind runtime out of the
+# code the model has to execute.
+panic = "abort"
+
+# Standalone: not part of any enclosing workspace.
+[workspace]

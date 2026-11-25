@@ -273,6 +273,10 @@ inductive Instr where
   | ldstExcl (size : Nat) (load : Bool) (rs rn rt : Reg)
   /-- `LDAR`/`LDLAR` (load) and `STLR`/`STLLR` (store). -/
   | ldstOrdered (size : Nat) (load : Bool) (rn rt : Reg)
+  /-- `LDAPUR`/`LDAPURB`/`LDAPURH`/`LDAPURS{B,H,W}` (load-acquire RCpc) and
+  `STLUR`/`STLURB`/`STLURH` (store-release) with an unscaled signed immediate
+  offset and no writeback (FEAT_LRCPC2). `op` is never `prefetch`. -/
+  | ldstOrderedImm (size : Nat) (op : MemOp) (offset : BitVec 64) (rn rt : Reg)
   /-- LSE atomics `LDADD`/.../`SWP` (all ordering variants). -/
   | atomic (size : Nat) (op : AtomicOp) (rs rn rt : Reg)
   /-- `CAS` (all ordering variants). -/

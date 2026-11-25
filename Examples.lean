@@ -3,3 +3,4 @@ import Examples.Basic.Proofs
 import Examples.Calls.Proofs
 import Examples.FP.Proofs
 import Examples.Ext.Proofs
+import Examples.Cedar.Proofs
