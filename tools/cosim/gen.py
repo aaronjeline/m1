@@ -72,6 +72,18 @@ def gen_ldst(rng):
         return w, 'ldst'
 
 
+def gen_rcpc2(rng):
+    """LDAPUR/STLUR (unscaled immediate, FEAT_LRCPC2): every size and opc
+    (including the unallocated ones) and a random 9-bit offset. The base is
+    buffer-relative at a random alignment, so this exercises the 16-byte
+    alignment rule on base + offset."""
+    w = ((rng.getrandbits(2) << 30) | 0x19000000 | (rng.getrandbits(2) << 22)
+         | (rng.getrandbits(9) << 12) | (rng.getrandbits(5) << 5) | rng.getrandbits(5))
+    if (w >> 5) & 31 == 31:
+        w ^= 1 << 5  # avoid SP as base: SP points at the harness context
+    return w, 'ldst'
+
+
 def gen_branch(rng):
     k = rng.randrange(4)
     if k == 0:
@@ -338,7 +350,7 @@ def gen_sys(rng):
                        0xD5033BBF, 0xD5033B9F, 0xD5033FDF, 0xD503305F]), 'sys'
 
 
-GENS = [(gen_dp_imm, 3), (gen_dp_reg, 4), (gen_ldst, 4), (gen_branch, 1), (gen_simd, 2), (gen_simd2, 3), (gen_vldst, 1.5), (gen_fp, 4), (gen_fpvec, 3), (gen_fpmore, 2), (gen_crypto, 1), (gen_scalar, 2),
+GENS = [(gen_dp_imm, 3), (gen_dp_reg, 4), (gen_ldst, 4), (gen_rcpc2, 0.5), (gen_branch, 1), (gen_simd, 2), (gen_simd2, 3), (gen_vldst, 1.5), (gen_fp, 4), (gen_fpvec, 3), (gen_fpmore, 2), (gen_crypto, 1), (gen_scalar, 2),
         (gen_sys, 0.3)]
 
 

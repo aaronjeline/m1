@@ -52,7 +52,9 @@ immediate), `MRS`/`MSR` of `NZCV`, `FPCR` and `FPSR`.
 pre-/post-index, register offset with extend/shift, literal), pairs, sign- and
 zero-extending loads, `PRFM` (no-op), exclusives (`LDXR`/`STXR`, acquire/release
 forms), `LDAR`/`STLR` and friends, LSE atomics (`LDADD`, `LDCLR`, `LDEOR`,
-`LDSET`, `LD{S,U}{MAX,MIN}`, `SWP`, `CAS`).
+`LDSET`, `LD{S,U}{MAX,MIN}`, `SWP`, `CAS`), and the FEAT_LRCPC2 unscaled
+`LDAPUR*`/`STLUR*` (**not yet validated on hardware**: see
+[VALIDATION.md](VALIDATION.md)).
 
 **SIMD:** FP/SIMD register loads and stores (all sizes and modes), `LD1`–`LD4`
 and `ST1`–`ST4` (multiple structures and single lane), `LD1R`–`LD4R`,
@@ -134,7 +136,8 @@ These are the places where the model makes a choice that a proof relies on.
     never checked;
   * exclusives, load-acquire/store-release, LSE atomics and `CAS` fault
     (`.dataAlignment`) exactly when the access crosses a 16-byte boundary
-    (FEAT_LSE2);
+    (FEAT_LSE2). `LDAPUR*`/`STLUR*` are assumed to follow the same rule on
+    base + offset; that has not been measured yet ([VALIDATION.md](VALIDATION.md));
   * a branch to a non-multiple of 4 faults (`.pcAlignment`).
 * **The exclusive monitor is deterministic:** `STXR` succeeds exactly when the
   monitor holds the same address and size from a preceding `LDXR`. Real
@@ -265,6 +268,9 @@ on an M1 Max with **zero mismatches**. Every issue the harness found during
 development was fixed in the model: LSE2 alignment, SP alignment checking,
 `x18` clobbering, decoding of unprivileged `PRFM`, the field layout of SIMD
 structure loads, and `FCMP #0.0` ignoring its `Rm` field.
+
+Instructions added since the last hardware run are listed, with what to
+check, in [VALIDATION.md](VALIDATION.md).
 
 Run it again after changing the model (optionally restricted to some
 generators, e.g. `gen_fp,gen_fpvec,gen_fpmore,gen_crypto`):

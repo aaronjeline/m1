@@ -22,4 +22,16 @@ int main(){ signal(SIGBUS,h); signal(SIGSEGV,h);
   T("cas   x", "cas %0, %1, [%2]")
   T("stxr  x", "ldxr %0, [%2]\n stxr %w1, %0, [%2]")
   T("ldapr x", "ldapr %0, [%2]")
+  // FEAT_LRCPC2 (unscaled immediate): the address checked is base + offset.
+  T("ldapur  x #0", "ldapur %0, [%2]")
+  T("ldapur  x #3", "ldapur %0, [%2, #3]")
+  T("ldapur  x #-1", "ldapur %0, [%2, #-1]")
+  T("ldapur  w #5", "ldapur %w0, [%2, #5]")
+  T("ldapurh #1", "ldapurh %w0, [%2, #1]")
+  T("ldapursw #-3", "ldapursw %0, [%2, #-3]")
+  T("ldapursh w #7", "ldapursh %w0, [%2, #7]")
+  T("stlur   x #3", "stlur %0, [%2, #3]")
+  T("stlur   w #-2", "stlur %w0, [%2, #-2]")
+  T("stlurh  #9", "stlurh %w0, [%2, #9]")
+  T("stlurb  #1", "stlurb %w0, [%2, #1]")
 }

@@ -1007,6 +1007,13 @@ def exec (w : BitVec 32) (i : Instr) (s : State) : State :=
       let addr := s.xsp rn
       if !atomicAligned addr size then s.fault (.dataAlignment addr) else
       (ldstOne s size (if load then .load else .store) addr rt).nextPC
+  | .ldstOrderedImm size op offset rn rt =>
+    -- NOT YET VALIDATED on hardware (see VALIDATION.md): the alignment rule is
+    -- assumed to be the FEAT_LSE2 one measured for LDAPR/STLR above.
+    if spFault s rn then s.fault .spAlignment else
+      let addr := s.xsp rn + offset
+      if !atomicAligned addr size then s.fault (.dataAlignment addr) else
+      (ldstOne s size op addr rt).nextPC
   | .atomic size op rs rn rt =>
     if spFault s rn then s.fault .spAlignment else
       let addr := s.xsp rn
