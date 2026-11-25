@@ -14,7 +14,8 @@ def EvalSpec' (p : Program) (T : BitVec 64) : Prop :=
       s.gpr 8 = s.sp + 8#64 ∧ s.mem.read64 tlvDesc = T ∧
       (∀ i < 8, ¬ OnStack lo top (tlvDesc + BitVec.ofNat 64 i)) ∧
       0x350 ≤ (s.sp - lo).toNat ∧ (s.sp - lo).toNat + 0x100 ≤ (top - lo).toNat ∧
-      Memory.Disjoint (s.gpr 2) 0x78 (s.sp - 0x350#64) 0x350)
+      Memory.Disjoint (s.gpr 2) 0x78 (s.sp - 0x350#64) 0x350 ∧
+      ∀ i < 0x78, OnStack lo top (s.gpr 2 + BitVec.ofNat 64 i))
     (fun s s' => 7 ≤ (s'.mem.read64 (s.gpr 8)).toNat ∧ CalleeSaved s s' ∧
       ∀ a, (a - s.sp).toNat < 0x100 → 0xc8 ≤ (a - s.gpr 8).toNat → s'.mem a = s.mem a)
 
@@ -730,9 +731,110 @@ theorem eval_spec (p : Program) (hp : p.Extends prog) (T : BitVec 64)
     (hc : Callees P lo top p T) (hfr : Frames P lo top) (hf : Facts P lo top)
     (hi : InterpretSpec P top p) :
     EvalSpec' P lo top p T := by
-  intro s hpc hst ⟨hsp, hx1, hwt, hx8, htlv, htlvoff, hlo, htop, hdisj⟩
+  intro s hpc hst ⟨hsp, hx1, hwt, hx8, htlv, htlvoff, hlo, htop, hdisj, heon⟩
   simp only [sym_fn] at hpc
+  have htopS : 0x450 ≤ (top - (s.sp + 0xfffffffffffffcb0#64)).toNat := by
+    have hS : (s.sp + 0xfffffffffffffcb0#64 - lo).toNat = (s.sp - lo).toNat - 0x350 := by
+      rw [BitVec.sub_add_comm.symm, BitVec.toNat_add]
+      simp only [BitVec.toNat_ofNat]
+      have := (s.sp - lo).isLt
+      omega
+    have e : top - (s.sp + 0xfffffffffffffcb0#64) =
+        (top - lo) - (s.sp + 0xfffffffffffffcb0#64 - lo) := by
+      rw [← sub_add_sub' top (s.sp + 0xfffffffffffffcb0#64) lo, BitVec.add_sub_cancel]
+    rw [e, BitVec.toNat_sub_of_le (by rw [BitVec.le_def, hS]; omega), hS]
+    omega
+  have hS' : s.sp + 0xffffffffffffffb0#64 - 768#64 = s.sp + 0xfffffffffffffcb0#64 := by
+    simp only [BitVec.sub_eq_add_neg, BitVec.add_assoc, BitVec.reduceNeg, BitVec.reduceAdd]
+  -- Prologue: save x19–x24, x27–x30; frame of 0x350 bytes.
   m1_step; m1_step; m1_step; m1_step; m1_step; m1_step; m1_step
+  -- x20 = expr, x21 = &entities, x22 = &request, x19 = result, x24 = sp + 0x170
+  m1_step; m1_step; m1_step; m1_step; m1_step
+  have hal : s.sp + 0xfffffffffffffcb0#64 &&& 15#64 = 0#64 := by bv_decide
+  have hedisj' : Memory.Disjoint (s.gpr 2) 0x78 (s.sp + 0xfffffffffffffcb0#64) 0x350 := by
+    rwa [show s.sp - 0x350#64 = s.sp + 0xfffffffffffffcb0#64 by grind] at hdisj
+  -- Extensions::all_available()
+  m1_step
+  refine Reaches.trans (hc.allAvailable _ rfl rfl ⟨by simpa using hal, trivial⟩) ?_
+  rintro s1 ⟨h1pc, h1st, h1cs, h1k, h1tlv, h1ext, h1wt⟩
+  have I1 : Inv s s1 := by
+    refine Inv.of_call top ?_ h1cs h1k htopS (fun a _ => Nat.zero_le _)
+    refine ⟨by simp, ?_, by simp [upd], by simp [upd], fun _ _ _ => rfl, rfl, ?_⟩
+    · unfold Saved
+      simp only [Memory.read64_write64_same, Memory.read64_write64_of_disjoint, Memory.disjoint_add_add,
+        Memory.disjoint_ofNat, BitVec.reduceSub, BitVec.reduceToNat, Nat.reduceLeDiff, and_self, upd,
+        BitVec.reduceEq, ite_true, ite_false]
+      exact ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+    · intro a h1 h2
+      have hk : 0x350 ≤ (a - (s.sp + 0xfffffffffffffcb0#64)).toNat := by
+        rw [show a - (s.sp + 0xfffffffffffffcb0#64) = (a - s.sp) + 0x350#64 by grind, BitVec.toNat_add]
+        simp only [BitVec.toNat_ofNat]; omega
+      dsimp only
+      simp (disch := far_tac hk) only [write64_keep]
+  -- The prologue's stores (in the frame) keep the expression and the TLV descriptor.
+  have hst0 : ∀ a, ¬ OnStack lo top a → ∀ c n, (c - 0xfffffffffffffcb0#64).toNat + n ≤ 0x450 →
+      n ≤ (a - (s.sp + c)).toNat :=
+    fun a hoff c n hc => Mem.far_of (Q := fun x => ¬ OnStack lo top x) hoff fun i hi hn =>
+      hn (onStack_range lo top hlo htop c n hc i hi)
+  have hwt1 : P.WT s1.mem (s.gpr 0) (s.gpr 2) := by
+    apply h1wt
+    refine hfr.wt _ _ s.mem _ hwt ?_
+    intro a ha
+    dsimp only
+    rcases ha with hin | ⟨hoff, hnk⟩
+    · have hst : ∀ c n, (c - 0xfffffffffffffcb0#64).toNat + n ≤ 0x350 → n ≤ (a - (s.sp + c)).toNat :=
+        fun c n hc => Mem.far_of (Q := fun x => (x - s.gpr 2).toNat < 0x78) hin
+          (far_e_range hedisj' c n hc)
+      simp (disch := (apply hst; simp only [BitVec.reduceSub, BitVec.reduceToNat]; omega)) only [write64_keep]
+    · simp (disch := (apply hst0 a hoff; simp only [BitVec.reduceSub, BitVec.reduceToNat]; omega))
+        only [write64_keep]
+  have htlv1 : s1.mem.read64 0x43e5e0#64 = T := by
+    rw [show (0x43e5e0#64 : BitVec 64) = tlvDesc from rfl, h1tlv, ← htlv]
+    apply Memory.read64_congr
+    intro i hi
+    dsimp only
+    simp (disch := (apply hst0 _ (htlvoff i hi); simp only [BitVec.reduceSub, BitVec.reduceToNat]; omega))
+      only [write64_keep]
+  have h1x19 := h1cs.1 19 (by decide) (by decide)
+  have h1x20 := h1cs.1 20 (by decide) (by decide)
+  have h1x21 := h1cs.1 21 (by decide) (by decide)
+  have h1x22 := h1cs.1 22 (by decide) (by decide)
+  have h1x24 := h1cs.1 24 (by decide) (by decide)
+  have h1x29 := h1cs.1 29 (by decide) (by decide)
+  have h1sp : s1.sp = s.sp + 0xfffffffffffffcb0#64 := I1.sp
+  simp only [upd, BitVec.reduceEq, ite_true, ite_false] at h1pc h1x19 h1x20 h1x21 h1x22 h1x24 h1x29
+  -- Request::clone(out = sp + 0x170, &request)
+  m1_step; m1_step; m1_step; m1_step
+  refine Reaches.trans (hc.clone _ rfl rfl ⟨by simpa [h1sp] using hal,
+    by simpa [upd, h1x22] using hf.envOfWT _ _ _ hwt1⟩) ?_
+  rintro s2 ⟨h2pc, h2st, h2cs, h2k, h2tlv, h2req, h2wt⟩
+  have I2 : Inv s s2 := by
+    refine Inv.of_call top (Inv.congr I1 ?_ ?_ ?_ ?_ ?_ ?_) h2cs h2k htopS ?_
+    · simp [h1sp]
+    · rfl
+    · simp [upd]
+    · simp [upd]
+    · exact VSame.refl _
+    · rfl
+    · out_tac
+  have hwt2 : P.WT s2.mem (s.gpr 0) (s.gpr 2) := h2wt _ _ hwt1
+  have htlv2 : s2.mem.read64 0x43e5e0#64 = T := h2tlv.trans htlv1
+  have h2sp : s2.sp = s.sp + 0xfffffffffffffcb0#64 := I2.sp
+  have h2x19 : s2.gpr 19 = s.sp + 8#64 := (h2cs.1 19 (by decide) (by decide)).trans (by simp [upd, h1x19])
+  have h2x20 : s2.gpr 20 = s.gpr 2 := (h2cs.1 20 (by decide) (by decide)).trans (by simp [upd, h1x20])
+  have h2x21 : s2.gpr 21 = s.gpr 0 + 432#64 :=
+    (h2cs.1 21 (by decide) (by decide)).trans (by simp [upd, h1x21])
+  have h2x23 : s2.gpr 23 = s1.gpr 0 := (h2cs.1 23 (by decide) (by decide)).trans (by simp [upd])
+  have h2x24 : s2.gpr 24 = s.sp + 0xfffffffffffffe20#64 :=
+    (h2cs.1 24 (by decide) (by decide)).trans (by simp [upd, h1x24])
+  have h2x29 : s2.gpr 29 = s.sp + 0xfffffffffffffff0#64 :=
+    (h2cs.1 29 (by decide) (by decide)).trans (by simp [upd, h1x29])
+  simp only [upd, BitVec.reduceEq, ite_true, ite_false, h1x22] at h2pc h2req
+  -- Evaluator::new(out = sp, request = sp + 0x170, &entities, &extensions)
+  m1_step; m1_step; m1_step; m1_step; m1_step
+  refine Reaches.trans (hc.new (s.gpr 0) _ rfl rfl ⟨by simpa [h2sp] using hal,
+    by simpa [upd, h2sp] using h2req, by simp [upd, h2x21], by simpa [upd, h2x23] using h1ext⟩) ?_
+  rintro s3 ⟨h3pc, h3st, h3cs, h3k, h3tlv, h3ev, h3wt⟩
   trace_state
   sorry
 
