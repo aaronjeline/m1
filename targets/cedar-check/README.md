@@ -20,6 +20,52 @@ commit `165f5ed`).
 
 The property to verify is that `cedar_check` never reaches `brk #0xc0de`.
 
+## Verification (`Examples/Cedar/Proofs.lean`)
+
+The only call to `type_soundness_violation` in the whole binary is in
+`verdict` (typecheck, evaluate, classify), which is kept out of line so that
+its machine code is small: 78 instructions, extracted with
+`./extract-verdict.py` into `Examples/Cedar/Code.lean` together with the
+`brk` itself. `violation_unreachable` proves, in the M1 model, that started
+at `verdict` in a state meeting its precondition, execution returns to the
+caller still running, and no state before the return is at
+`type_soundness_violation`.
+
+**Proved** (about the extracted machine code): the compiled control flow
+reaches the `brk` only when `eval_expression` returns a result whose first
+word is below 7, which is rustc's encoding of `Err(EvaluationError::TypeError)`
+in `Result<EvalResult, EvaluationError>`; the expression and environment
+evaluated are the ones that were typechecked (same pointers, memory unchanged
+in between); and every other path (ill-typed, value, other evaluation error)
+returns to the caller with the `Outcome` tag 1, 2 or 3 written, its saved
+registers restored from a frame that neither the callees nor the stores to
+the result clobber.
+
+**Assumed** (hypotheses of the theorem, about code outside the extracted
+range):
+
+* `TypechecksSpec`: `typechecks_in` returns per the AAPCS64 without writing
+  its caller's frame, and when it returns `true` the expression satisfies the
+  abstract predicate `WT` (well-typed in the environment).
+* `EvalSpec`: `eval_expression` returns, writes only its result within its
+  caller's frame, and on a `WT` expression the result is not
+  `Err(TypeError)`. **This is Cedar's type soundness**, for the compiled
+  validator and evaluator; it is not proved here. Cedar's own soundness
+  proof (in the Lean `cedar-spec`) is about its Lean model of the language,
+  not this Rust code, and the compiled validator and evaluator (with the
+  allocator in libSystem) are far beyond instruction-level symbolic
+  execution.
+* The precondition of `verdict`: an AAPCS64 call (16-byte aligned `SP`),
+  valid inputs (`Valid`, which does not depend on the 256 bytes below `SP`)
+  and an output object disjoint from `verdict`'s frame.
+
+`Valid` and `WT` are universally quantified, so the result holds for any
+meaning that makes the contracts true. The instructions of `verdict` are all
+in hardware-validated classes (none of the pending FEAT_LRCPC2 ones).
+
+`Code.lean` must be regenerated (`./build-m1.sh && ./extract-verdict.py`) if
+the build changes; the proof then needs rechecking with `lake build`.
+
 The validator checks policies, whose condition must be `Bool`, so an
 expression `e` of any type is checked as the AST of
 `permit(principal, action, resource) when { e == e };`, which typechecks exactly

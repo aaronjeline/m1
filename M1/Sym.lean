@@ -58,9 +58,17 @@ partial def getBV64 (e : Expr) : MetaM (Option (BitVec 64)) := do
   | some e' => getBV64 e'
   | none => return none
 
+/-- Substitute every `let`/`have` binding in `e`. -/
+partial def zetaAll : Expr → Expr
+  | .letE _ _ v b _ => zetaAll (b.instantiate1 (zetaAll v))
+  | .app f a => .app (zetaAll f) (zetaAll a)
+  | e => e
+
 /-- Get the elements of a list literal, unfolding definitions if needed. -/
 partial def getListLit (e : Expr) : MetaM (Option (List Expr)) := do
   if let some (_, xs) := e.listLit? then return some xs
+  -- Long list literals elaborate into chunks bound by `have`: substitute them.
+  if e.isLet then return ← getListLit (zetaAll e)
   match ← withDefault (unfoldDefinition? e) with
   | some e' => getListLit e'
   | none => return none

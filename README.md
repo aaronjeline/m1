@@ -33,7 +33,8 @@ next PC are compared.
 | `tools/coverage.py` | Reports how much of a binary's code the decoder covers. |
 | `tools/cosim/` | Single-instruction hardware co-simulation harness. |
 | `tools/funsim/` | Whole-function co-simulation harness. |
-| `Examples/` | Verified clang `-O2` output. |
+| `Examples/` | Verified clang `-O2` output, and the Cedar target's assertion (`Examples/Cedar`). |
+| `targets/cedar-check/` | Rust verification target: Cedar parse, typecheck, evaluate, with a type-soundness assertion. |
 
 ## What is modelled
 
@@ -235,7 +236,12 @@ These are the places where the model makes a choice that a proof relies on.
    a saturating `double` to `long` conversion) and `Examples/Ext/Proofs.lean`
    (`rand() % 6 + 1` against libc's `rand` contract, including clang's
    multiply-high replacement of `% 6`, and preservation of callee-saved
-   registers).
+   registers). `Examples/Cedar/Proofs.lean` verifies rustc output: the
+   type-soundness assertion in `targets/cedar-check` is unreachable, given
+   contracts for Cedar's typechecker and evaluator (see that file and
+   `targets/cedar-check/README.md`). Long extracted programs work with
+   `m1_step`: `reduceFetch` sees through the `have` chunks Lean uses to
+   elaborate long list literals.
 
    Tips:
    * Always step from a concrete PC. Stepping from a symbolic PC (for example

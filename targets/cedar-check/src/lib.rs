@@ -81,7 +81,8 @@ impl Outcome {
     }
 }
 
-struct Env {
+/// The fixed typing and evaluation environment.
+pub struct Env {
     validator: Validator,
     entities: Entities,
     request: Request,
@@ -115,6 +116,12 @@ fn env() -> &'static Env {
 /// which typechecks exactly when `e` has some type. The policy is built as an
 /// AST, not by pasting `e` into policy text, so the input cannot escape it.
 pub fn typechecks(e: &ast::Expr) -> bool {
+    typechecks_in(env(), e)
+}
+
+/// [`typechecks`] in the given environment.
+#[inline(never)]
+fn typechecks_in(env: &Env, e: &ast::Expr) -> bool {
     let cond = ast::Expr::is_eq(e.clone(), e.clone());
     let policy = ast::Policy::from_when_clause(
         ast::Effect::Permit,
@@ -126,19 +133,31 @@ pub fn typechecks(e: &ast::Expr) -> bool {
     if pset.add(policy).is_err() {
         return false;
     }
-    env().validator.validate(&pset, ValidationMode::Strict).validation_passed()
+    env.validator.validate(&pset, ValidationMode::Strict).validation_passed()
 }
 
 /// Parse, typecheck and evaluate `src`.
 pub fn check(src: &str) -> Outcome {
-    let Ok(expr) = Expression::from_str(src) else {
-        return Outcome::ParseError;
-    };
-    if !typechecks(expr.as_ref()) {
+    let parsed = Expression::from_str(src);
+    match &parsed {
+        Ok(expr) => verdict(env(), expr),
+        Err(_) => Outcome::ParseError,
+    }
+}
+
+/// Typecheck and evaluate a parsed expression: the part of [`check`] that
+/// decides whether the assertion is reached, and the only caller of
+/// [`type_soundness_violation`].
+///
+/// Kept out of line, borrowing its inputs and moving the evaluation result
+/// into its own result, so that its machine code is small and self-contained:
+/// it is verified in the M1 model (`Examples/Cedar`).
+#[inline(never)]
+pub fn verdict(env: &Env, expr: &Expression) -> Outcome {
+    if !typechecks_in(env, expr.as_ref()) {
         return Outcome::IllTyped;
     }
-    let env = env();
-    match eval_expression(&env.request, &env.entities, &expr) {
+    match eval_expression(&env.request, &env.entities, expr) {
         Ok(v) => Outcome::Value(v),
         Err(EvaluationError::TypeError(_)) => type_soundness_violation(),
         Err(e) => Outcome::EvalError(e),
